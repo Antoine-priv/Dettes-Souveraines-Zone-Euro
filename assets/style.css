@@ -94,3 +94,4 @@ button:hover { opacity: .75; }
 .ptitle .fold:hover { background: var(--btn-bg); color: var(--text-primary); }
 #dropline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text-secondary); pointer-events: none; }
 #dropline[hidden] { display: none; }
+.cover { position: absolute; left: 0; right: 0; background: var(--surface); pointer-events: none; }

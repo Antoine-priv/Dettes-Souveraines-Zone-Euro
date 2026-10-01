@@ -71,17 +71,13 @@ const EVENTS = [
 
 // Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
 const TITLE_H = 44, AXIS_H = 40;
-// scale : {clé: 0…1} pour un panneau en cours de repli / dépliage (animation)
-function geometry(scale = {}) {
+function geometry() {
   const plotH = Math.max(320, Math.round(innerHeight * 0.42));
   let y = 0;
   const blocks = state.order.map(key => {
     const b = { key, top: y };
     y += TITLE_H;
-    if (!state.folded.has(key)) {
-      const k = scale[key] ?? 1;
-      b.plotTop = y; b.plotBottom = y += Math.max(1, plotH * k); y += AXIS_H * k;
-    }
+    if (!state.folded.has(key)) { b.plotTop = y; b.plotBottom = y += plotH; y += AXIS_H; }
     b.bottom = y;
     return b;
   });
@@ -141,13 +137,13 @@ const chart = document.getElementById("chart");
 const config = { responsive: true, scrollZoom: false, displayModeBar: false, locale: "fr", doubleClick: false };
 
 // Reconstruit la figure (ordre, repli, thème) en conservant la fenêtre de temps et, en échelle manuelle, les échelles verticales
-function render(scale) {
+function render() {
   const fl = chart._fullLayout;
   const xRange = shown.length && fl?.xaxis?.range?.slice();
   const yRanges = Object.fromEntries(shown.map(p => [p.key, fl?.["yaxis" + p.n]?.range?.slice()]));
   shown = state.order.map(k => PANEL[k]).filter(p => !state.folded.has(p.key));
   shown.forEach((p, i) => { p.n = i ? String(i + 1) : ""; });
-  const geo = geometry(scale);
+  const geo = geometry();
   const layout = baseLayout(geo);
   for (const p of shown) {
     if (xRange) layout["xaxis" + p.n].range = xRange;
@@ -398,50 +394,35 @@ function paintTitles(geo) {
   }).join("");
   titles.geo = geo;
 }
-function placeTitles(geo) {
-  for (const el of titles.children) el.style.top = geo.blocks.find(b => b.key === el.dataset.key).top + "px";
-  titles.geo = geo;
-}
-
-// Animation de repli / dépliage : on fait varier la hauteur du panneau image par image
-// (chaque image attend la fin du redessin Plotly précédent pour rester fluide)
-const FOLD_MS = 280;
-const ease = t => t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+// Repli / dépliage en fondu : un cache couleur de fond recouvre le graphique (tracé + axe du temps)
+// et passe d'opaque à transparent (dépliage) ou l'inverse (repli). Les autres graphiques se décalent d'un coup.
+const FADE_MS = 220;
 let animating = false;
-function animatePanel(key, from, to) {
-  return new Promise(done => {
-    const t0 = performance.now();
-    const frame = () => {
-      const t = Math.min(1, (performance.now() - t0) / FOLD_MS);
-      const geo = geometry({ [key]: from + (to - from) * ease(t) });
-      const frac = px => 1 - px / geo.height;
-      const upd = { height: geo.height };
-      for (const p of shown) {
-        const b = geo.blocks.find(b => b.key === p.key);
-        upd[`yaxis${p.n}.domain`] = [frac(b.plotBottom), frac(b.plotTop)];
-      }
-      chart.style.height = geo.height + "px";
-      placeTitles(geo);
-      Plotly.relayout(chart, upd).then(() => t < 1 ? requestAnimationFrame(frame) : done());
-    };
-    frame();
-  });
+function makeCover(key, opacity) {
+  const b = geometry().blocks.find(b => b.key === key);
+  const cover = stage.appendChild(Object.assign(document.createElement("div"), { className: "cover" }));
+  Object.assign(cover.style, { top: b.plotTop + "px", height: b.bottom - b.plotTop + "px", opacity });
+  return cover;
 }
+const fade = (cover, from, to) =>
+  cover.animate([{ opacity: from }, { opacity: to }], { duration: FADE_MS, easing: "ease", fill: "forwards" }).finished;
 async function toggleFold(key) {
   if (animating) return;
   animating = true;
   hideHover();
-  if (state.folded.has(key)) {   // dépliage : on l'insère à hauteur nulle, puis on l'agrandit
+  if (state.folded.has(key)) {
     state.folded.delete(key);
-    await render({ [key]: 0 });
-    await animatePanel(key, 0, 1);
-  } else {                       // repli : on le réduit, puis on le retire de la figure
-    titles.querySelector(`[data-key="${key}"]`).classList.add("folded");
-    await animatePanel(key, 1, 0);
+    const cover = makeCover(key, 1);   // posé avant le rendu : le graphique n'apparaît jamais d'un coup
+    await render();
+    await fade(cover, 1, 0);
+    cover.remove();
+  } else {
+    const cover = makeCover(key, 0);
+    await fade(cover, 0, 1);
     state.folded.add(key);
     await render();
+    cover.remove();
   }
-  paintTitles(titles.geo);
   savePanels();
   animating = false;
 }
