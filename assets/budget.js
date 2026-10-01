@@ -138,7 +138,7 @@ const labels = {};
 function draw(id, g, height) {
   const layout = {
     height, margin: { l: SIDE, r: SIDE, t: 28, b: 8 },
-    paper_bgcolor: css("--surface"), font: { color: css("--text-primary") },
+    paper_bgcolor: "rgba(0,0,0,0)", font: { color: css("--text-primary") },
   };
   const trace = g.build(height - 36);
   labels[id] = g.labels;
