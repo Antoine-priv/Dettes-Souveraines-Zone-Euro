@@ -5,6 +5,10 @@ const SECTORS = Object.keys(B.sectors);   // État, Sécurité sociale, Collecti
 // Couleur de chaque sous-secteur ; le déficit (emprunt) a la sienne
 const SECTOR_VAR = { S1311: "--s1", S1314: "--s3", S1313: "--s6" };
 const DEFICIT_VAR = "--s2";
+// Cotisations retraite imputées : l'État employeur se verse à lui-même la contrepartie des retraites
+// de ses fonctionnaires ; même couleur en recette et dans chaque fonction de dépense
+const IMPUTED_VAR = "--s4";
+const IMP = B.revenues.indexOf("Cotisations retraite imputées");
 const FROM = { S1311: "de l'État", S1314: "de la Sécurité sociale", S1313: "des collectivités" };
 const TO = { S1311: "à l'État", S1314: "à la Sécurité sociale", S1313: "aux collectivités" };
 const BY = { S1311: "par l'État", S1314: "par la Sécurité sociale", S1313: "par les collectivités" };
@@ -12,7 +16,7 @@ const BY = { S1311: "par l'État", S1314: "par la Sécurité sociale", S1313: "p
 const nf0 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const md = v => `${(v < 10 ? nf1 : nf0).format(v)} Md€`;
-let year = B.detailed.at(-1) || B.years.at(-1);   // dernière année où retraites et chômage sont détaillés
+let year = B.years.at(-1);
 const pib = v => B.gdp[year] ? ` (${nf1.format(100 * v / B.gdp[year])} % du PIB)` : "";
 
 function rgba(hex, a) {
@@ -24,7 +28,7 @@ function rgba(hex, a) {
 function sankey() {
   const nodes = [], links = [], index = {};
   return {
-    node(key, col, label, color) { index[key] = nodes.length; nodes.push({ key, col, label, color, in: 0, out: 0, parts: [] }); },
+    node(key, col, label, color, sub) { index[key] = nodes.length; nodes.push({ key, col, label, color, sub, in: 0, out: 0, parts: [] }); },
     link(from, to, value, sector, text) {
       if (!(value > 0.05)) return;   // les résidus nuls ou négatifs ne sont pas tracés
       const a = nodes[index[from]], b = nodes[index[to]];
@@ -32,10 +36,11 @@ function sankey() {
       links.push({ source: index[from], target: index[to], value, sector, text });
       for (const n of [a, b]) n.parts.push([sector, value]);
     },
+    nodes: () => nodes,
     build(height) {
       const used = nodes.filter(n => n.in || n.out);
       const cols = [...new Set(used.map(n => n.col))].sort((a, b) => a - b);
-      const pad = 12, pf = pad / height;
+      const pad = 8, pf = pad / height;
       // Position de chaque nœud : centre vertical cumulé dans sa colonne, les colonnes ayant le même total
       for (const c of cols) {
         const col = used.filter(n => n.col === c);
@@ -61,7 +66,7 @@ function sankey() {
       };
       // libellés dessinés en HTML hors du diagramme (voir placeLabels)
       this.labels = used.map(n => ({ col: n.col === cols[0] ? "left" : n.col === cols.at(-1) ? "right" : "mid",
-                                     text: n.label, value: md(Math.max(n.in, n.out)) }));
+                                     text: n.sub || n.label, sub: !!n.sub, value: md(Math.max(n.in, n.out)) }));
       return {
         type: "sankey", arrangement: "fixed", valueformat: ".0f",
         hoverlabel: { bgcolor: css("--surface"), bordercolor: css("--grid"), font: { color: css("--text-primary") } },
@@ -85,18 +90,36 @@ function sankey() {
   };
 }
 
+// Nœuds d'une fonction de dépense : la fonction (hors cotisations imputées), puis ses cotisations imputées
+function functionNodes(g, col, suffix = "", color) {
+  B.functions.forEach((f, i) => {
+    g.node(`f${i}${suffix}`, col, f, color);
+    g.node(`i${i}${suffix}`, col, `${f} : cotisations retraite imputées`, IMPUTED_VAR, "↳ cotisations retraite imputées");
+  });
+}
+const revColor = (i, s) => i === IMP ? IMPUTED_VAR : s && SECTOR_VAR[s];
+// sectors : administrations qui alimentent ces nœuds ; en dessous de 0,5 Md€, les cotisations
+// imputées d'une fonction restent dans la fonction (nœud trop fin pour être lisible)
+function spend(g, d, s, from, suffix = "", sectors = [s]) {
+  B.functions.forEach((f, i) => {
+    const apart = sectors.reduce((a, x) => a + d[x].imp[i], 0) >= 0.5;
+    g.link(from, `f${i}${suffix}`, d[s].exp[i] + (apart ? 0 : d[s].imp[i]), s, `${f} : dépenses ${FROM[s]}`);
+    if (apart) g.link(from, `i${i}${suffix}`, d[s].imp[i], s, `${f} : cotisations retraite imputées ${FROM[s]}`);
+  });
+}
+
 // ---- Comptes consolidés : les transferts entre administrations disparaissent ----------------------
-// Recettes (couleur = administration qui les perçoit) → administrations publiques → dépenses (couleur = qui dépense)
+// Recettes (couleur = administration qui les perçoit) → administrations publiques → dépenses par fonction (couleur = qui dépense)
 function consolidated(d) {
   const g = sankey();
-  B.revenues.forEach((r, i) => g.node("r" + i, 0, r));
+  B.revenues.forEach((r, i) => g.node("r" + i, 0, r, revColor(i)));
   g.node("deficit", 0, "Déficit (emprunt)", DEFICIT_VAR);
   g.node("apu", 1, "Administrations publiques", "--text-secondary");
-  B.expenses.forEach((e, i) => g.node("e" + i, 2, e));
+  functionNodes(g, 2);
   g.node("surplus", 2, "Excédent");
   for (const s of SECTORS) {
     d[s].rev.forEach((v, i) => g.link("r" + i, "apu", v, s, `${B.revenues[i]} perçus ${BY[s]}`));
-    d[s].exp.forEach((v, i) => g.link("apu", "e" + i, v, s, `${B.expenses[i]} payés ${BY[s]}`));
+    spend(g, d, s, "apu", "", SECTORS);
     if (d[s].balance < 0) g.link("deficit", "apu", -d[s].balance, s, `Déficit ${FROM[s]}`);
     else g.link("apu", "surplus", d[s].balance, s, `Excédent ${FROM[s]}`);
   }
@@ -108,19 +131,19 @@ function consolidated(d) {
 function unconsolidated(d) {
   const g = sankey();
   for (const s of SECTORS) {
-    B.revenues.forEach((r, i) => g.node(`r${i}${s}`, 0, r, SECTOR_VAR[s]));
+    B.revenues.forEach((r, i) => g.node(`r${i}${s}`, 0, r, revColor(i, s)));
     for (const p of SECTORS) if (p !== s) g.node(`from${p}${s}`, 0, `Reçu ${FROM[p]}`, SECTOR_VAR[p]);
     g.node("deficit" + s, 0, `Déficit ${FROM[s]}`, DEFICIT_VAR);
   }
   for (const s of SECTORS) g.node(s, 1, B.sectors[s], SECTOR_VAR[s]);
   for (const s of SECTORS) {
-    B.expenses.forEach((e, i) => g.node(`e${i}${s}`, 2, e, SECTOR_VAR[s]));
+    functionNodes(g, 2, s, SECTOR_VAR[s]);
     for (const r of SECTORS) if (r !== s) g.node(`to${r}${s}`, 2, `Versé ${TO[r]}`, SECTOR_VAR[r]);
     g.node("surplus" + s, 2, `Excédent ${FROM[s]}`);
   }
   for (const s of SECTORS) {
     d[s].rev.forEach((v, i) => g.link(`r${i}${s}`, s, v, s, `${B.revenues[i]} perçus ${BY[s]}`));
-    d[s].exp.forEach((v, i) => g.link(s, `e${i}${s}`, v, s, `${B.expenses[i]} payés ${BY[s]}`));
+    spend(g, d, s, s, s);
     for (const [r, v] of Object.entries(d[s].to)) {
       g.link(s, `to${r}${s}`, v, s, `Transferts ${FROM[s]} ${TO[r]}`);
       g.link(`from${s}${r}`, r, v, r, `Transferts ${FROM[s]} ${TO[r]}`);
@@ -147,40 +170,56 @@ function draw(id, g, height) {
   if (!gd._labelsHooked) { gd._labelsHooked = true; gd.on("plotly_afterplot", () => placeLabels(id)); }
 }
 
-// Libellés à gauche des nœuds de gauche, à droite de ceux de droite, au-dessus de ceux du milieu
+// Libellés à gauche des nœuds de gauche, à droite de ceux de droite, au-dessus de ceux du milieu.
+// Dans chaque colonne latérale, un libellé trop proche du précédent est décalé vers le bas.
+const LINE = 14;
 function placeLabels(id) {
   const gd = document.getElementById(id);
   let layer = gd.parentNode.querySelector(".labels");
   if (!layer) layer = gd.parentNode.appendChild(Object.assign(document.createElement("div"), { className: "labels" }));
   const box = gd.parentNode.getBoundingClientRect();
   layer.innerHTML = "";
+  const items = [];
   gd.querySelectorAll(".sankey-node").forEach((el, i) => {
     const info = labels[id][el.__data__?.node?.pointNumber ?? i];
     const r = el.querySelector(".node-rect").getBoundingClientRect();
-    if (!info || r.height < 2) return;   // nœud trop fin : infobulle seulement
+    if (info && r.height >= 1) items.push({ info, r, mid: r.top - box.top + r.height / 2 });   // nœud trop fin : infobulle seulement
+  });
+  for (const side of ["left", "right"]) {
+    let last = -Infinity;
+    for (const it of items.filter(it => it.info.col === side).sort((a, b) => a.mid - b.mid)) {
+      it.mid = last = Math.max(it.mid, last + LINE);
+    }
+  }
+  for (const { info, r, mid } of items) {
     const div = layer.appendChild(document.createElement("div"));
-    div.className = "nlabel " + info.col;
+    div.className = `nlabel ${info.col}${info.sub ? " sub" : ""}`;
     div.innerHTML = `${info.text} <span>${info.value}</span>`;
-    const top = r.top - box.top, mid = top + r.height / 2;
     if (info.col === "left") Object.assign(div.style, { right: box.right - r.left + 8 + "px", top: mid + "px" });
     else if (info.col === "right") Object.assign(div.style, { left: r.right - box.left + 8 + "px", top: mid + "px" });
-    else Object.assign(div.style, { left: r.left - box.left + r.width / 2 + "px", top: top - 4 + "px" });
-  });
+    else Object.assign(div.style, { left: r.left - box.left + r.width / 2 + "px", top: r.top - box.top - 4 + "px" });
+  }
 }
 
 function totals(d, consolidated) {
   const sum = (s, k) => d[s][k].reduce((a, v) => a + v, 0);
   const transfers = consolidated ? 0 : SECTORS.reduce((a, s) => a + Object.values(d[s].to).reduce((x, v) => x + v, 0), 0);
   const rev = SECTORS.reduce((a, s) => a + sum(s, "rev"), 0) + transfers;
-  const exp = SECTORS.reduce((a, s) => a + sum(s, "exp"), 0) + transfers;
+  const exp = SECTORS.reduce((a, s) => a + sum(s, "exp") + sum(s, "imp"), 0) + transfers;
   return `${md(rev)} de recettes, ${md(exp)} de dépenses en ${year}`;
 }
 
 function render() {
   const d = B.data[year];
-  const h = Math.max(640, Math.round(innerHeight * 0.85));
-  draw("cons", consolidated(d), h);
-  draw("raw", unconsolidated(d), h);
+  // hauteur : au moins une ligne de libellé par nœud de la colonne la plus chargée
+  const height = g => {
+    const counts = {};
+    for (const n of g.nodes()) if (n.in || n.out) counts[n.col] = (counts[n.col] || 0) + 1;
+    return Math.max(640, Math.round(innerHeight * 0.85), Math.max(...Object.values(counts)) * (LINE + 4) + 60);
+  };
+  const cons = consolidated(d), raw = unconsolidated(d);
+  draw("cons", cons, height(cons));
+  draw("raw", raw, height(raw));
   document.getElementById("sum-cons").textContent = totals(d, true);
   document.getElementById("sum-raw").textContent = totals(d, false);
 }
@@ -194,7 +233,8 @@ select.onchange = () => { year = select.value; render(); };
 function paintLegend() {
   const item = (v, label) => `<span class="item"><span class="sw block" style="background:${css(v)}"></span>${label}</span>`;
   document.getElementById("legend").innerHTML =
-    SECTORS.map(s => item(SECTOR_VAR[s], B.sectors[s])).join("") + item(DEFICIT_VAR, "Déficit");
+    SECTORS.map(s => item(SECTOR_VAR[s], B.sectors[s])).join("") + item(DEFICIT_VAR, "Déficit")
+    + item(IMPUTED_VAR, "Cotisations retraite imputées");
 }
 
 // ---- Thème clair / sombre (même réglage que la page principale) --------------------------------

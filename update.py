@@ -17,8 +17,8 @@ Finances publiques (Eurostat, administrations publiques S13) :
     années sans données trimestrielles (IE, DE avant 2002) reprennent le
     chiffre annuel (gov_10dd_edpt1).
 
-Budget de la France (gov_10a_main, annuel, millions d'euros) : recettes et
-dépenses de l'État et des organismes centraux (S1311), des collectivités locales
+Budget de la France (annuel, millions d'euros ; recettes : gov_10a_main, dépenses par
+fonction : gov_10a_exp) : recettes et dépenses de l'État et des organismes centraux (S1311), des collectivités locales
 (S1313) et de la sécurité sociale (S1314), avec les transferts entre eux ; sert
 aux diagrammes de Sankey de budget.html (data/budget.js).
 
@@ -65,35 +65,52 @@ BUDGET_START = "2005"
 # Budget de la France : sous-secteurs des administrations publiques (ordre = ordre des couleurs)
 SUBSECTORS = {"S1311": "État", "S1314": "Sécurité sociale", "S1313": "Collectivités locales"}
 BUDGET_ITEMS = [
-    "TR", "TE", "P11_P12_P131", "D2REC", "D211REC", "D5REC", "D51A_C1REC", "D51B_C2REC", "D61REC", "D91REC",
-    "P2", "P5", "NP", "D1PAY", "D3PAY", "D41PAY", "D62PAY", "D62PAY_GF1002", "D62PAY_GF1003", "D62PAY_GF1005",
-    "D632PAY", "D76PAY",
+    "TR", "TE", "P11_P12_P131", "D2REC", "D211REC", "D5REC", "D51A_C1REC", "D51B_C2REC",
+    "D61REC", "D611REC", "D613REC", "D91REC",
 ] + [f"{t}PAY_{s}" for t in ("D4", "D7", "D9") for s in SUBSECTORS]  # transferts entre sous-secteurs
-# Postes du diagramme : (libellé, formule = liste de (signe, opération)). Le dernier poste de chaque
-# liste est le solde (total − postes nommés − transferts internes), calculé à part.
+# Cotisations imputées = cotisations sociales reçues − cotisations effectives des employeurs et des
+# ménages : pour l'État, la contrepartie des retraites des fonctionnaires, qu'il paie lui-même.
+IMPUTED = [(1, "D61REC"), (-1, "D611REC"), (-1, "D613REC")]
+# Postes de recettes : (libellé, formule = liste de (signe, opération)). Le dernier est le solde
+# (total − postes nommés − transferts internes), calculé à part.
 REVENUES = [
     ("TVA", [(1, "D211REC")]),
     ("Autres impôts sur la production", [(1, "D2REC"), (-1, "D211REC")]),
     ("Impôts sur le revenu (IR, CSG)", [(1, "D51A_C1REC")]),
     ("Impôt sur les sociétés", [(1, "D51B_C2REC")]),
     ("Impôts sur le patrimoine, successions", [(1, "D5REC"), (-1, "D51A_C1REC"), (-1, "D51B_C2REC"), (1, "D91REC")]),
-    ("Cotisations sociales", [(1, "D61REC")]),
+    ("Cotisations sociales", [(1, "D611REC"), (1, "D613REC")]),
+    ("Cotisations retraite imputées", IMPUTED),
     ("Ventes et recettes de services", [(1, "P11_P12_P131")]),
     ("Autres recettes", None),
 ]
-EXPENSES = [
-    ("Rémunération des agents", [(1, "D1PAY")]),
-    ("Achats courants", [(1, "P2")]),
-    ("Investissement", [(1, "P5"), (1, "NP")]),
-    ("Retraites", [(1, "D62PAY_GF1002"), (1, "D62PAY_GF1003")]),
-    ("Chômage", [(1, "D62PAY_GF1005")]),
-    ("Autres prestations en espèces", [(1, "D62PAY"), (-1, "D62PAY_GF1002"), (-1, "D62PAY_GF1003"), (-1, "D62PAY_GF1005")]),
-    ("Soins et prestations en nature", [(1, "D632PAY")]),
-    ("Intérêts de la dette", [(1, "D41PAY")]),
-    ("Subventions", [(1, "D3PAY")]),
-    ("Contribution au budget de l'UE", [(1, "D76PAY")]),
-    ("Autres transferts et dépenses", None),
+# Dépenses par fonction (COFOG, gov_10a_exp), regroupées par bloc ; la recherche réunit les
+# postes R&D de toutes les fonctions. Le dernier poste reçoit le reste de la fonction 01.
+RD = ["GF0104", "GF0105", "GF0204", "GF0305", "GF0408", "GF0505", "GF0605", "GF0705", "GF0805", "GF0907", "GF1008"]
+FUNCTIONS = [
+    ("Retraites", ["GF1002", "GF1003"]),
+    ("Santé", ["GF0701", "GF0702", "GF0703", "GF0704", "GF0706"]),
+    ("Maladie, invalidité (indemnités)", ["GF1001"]),
+    ("Famille", ["GF1004"]),
+    ("Chômage", ["GF1005"]),
+    ("Logement, RSA et solidarité", ["GF1006", "GF1007", "GF1009"]),
+    ("Enseignement", ["GF0901", "GF0902", "GF0903", "GF0904", "GF0905", "GF0906", "GF0908"]),
+    ("Recherche", RD),
+    ("Défense", ["GF0201", "GF0202", "GF0203", "GF0205"]),
+    ("Sécurité (police, pompiers)", ["GF0301", "GF0302", "GF0306"]),
+    ("Justice et prisons", ["GF0303", "GF0304"]),
+    ("Économie, emploi, transports", ["GF0401", "GF0402", "GF0403", "GF0404", "GF0405", "GF0406", "GF0407", "GF0409"]),
+    ("Environnement", ["GF0501", "GF0502", "GF0503", "GF0504", "GF0506"]),
+    ("Urbanisme, eau, équipements", ["GF0601", "GF0602", "GF0603", "GF0604", "GF0606"]),
+    ("Culture, sport, médias", ["GF0801", "GF0802", "GF0803", "GF0804", "GF0806"]),
+    ("Administration générale", ["GF0101", "GF0102", "GF0103", "GF0106", "GF0108"]),
+    ("Intérêts de la dette", ["GF0107"]),
 ]
+COFOG_ITEMS = ["TE", "D1"] + [f"{t}_{s}" for t in ("D4", "D7", "D9") for s in SUBSECTORS]
+# Les cotisations imputées sont réparties entre fonctions au prorata de la masse salariale (D1),
+# pondérée par les taux employeur du CAS Pensions : 126,07 % pour les militaires, 74,28 % pour les civils.
+MILITARY_WEIGHT = 126.07 / 74.28
+
 
 
 def http(url, data=None, headers=None, attempts=3, timeout=60):
@@ -158,21 +175,24 @@ def fetch_eurostat(dataset, start, **filters):
     return out
 
 
-def fetch_budget():
-    """{secteur: {opération: {'AAAA': valeur}}} pour la France, en millions d'euros."""
+def fetch_france(dataset, items, by_cofog=False):
+    """{secteur: {opération: {'AAAA': valeur}}} pour la France, en millions d'euros
+    (avec by_cofog : {secteur: {opération: {fonction: {'AAAA': valeur}}}})."""
     query = urllib.parse.urlencode(
         [("format", "JSON"), ("geo", "FR"), ("unit", "MIO_EUR"), ("sinceTimePeriod", BUDGET_START)]
-        + [("sector", s) for s in ("S13", *SUBSECTORS)] + [("na_item", i) for i in BUDGET_ITEMS]
+        + [("sector", s) for s in ("S13", *SUBSECTORS)] + [("na_item", i) for i in items]
     )
-    d = json.loads(http(EUROSTAT_URL.format(dataset="gov_10a_main") + "?" + query))
+    d = json.loads(http(EUROSTAT_URL.format(dataset=dataset) + "?" + query))
     dims = {k: {i: c for c, i in d["dimension"][k]["category"]["index"].items()} for k in d["id"]}
     out = {}
     for k, v in d["value"].items():
         coords, k = {}, int(k)
         for dim, size in reversed(list(zip(d["id"], d["size"]))):
             k, coords[dim] = divmod(k, size)
-        out.setdefault(dims["sector"][coords["sector"]], {}).setdefault(dims["na_item"][coords["na_item"]], {})[
-            dims["time"][coords["time"]]] = v
+        node = out.setdefault(dims["sector"][coords["sector"]], {}).setdefault(dims["na_item"][coords["na_item"]], {})
+        if by_cofog:
+            node = node.setdefault(dims["cofog99"][coords["cofog99"]], {})
+        node[dims["time"][coords["time"]]] = v
     return out
 
 
@@ -194,7 +214,8 @@ def download():
     data["balance_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q2", na_item="B9", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1999-Q2", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
     print("  Eurostat : budget de la France…", flush=True)
-    data["budget"] = fetch_budget()
+    data["budget"] = fetch_france("gov_10a_main", BUDGET_ITEMS)
+    data["cofog"] = fetch_france("gov_10a_exp", COFOG_ITEMS, by_cofog=True)
     data["gdp_fr"] = fetch_eurostat("nama_10_gdp", BUDGET_START, na_item="B1GQ", unit="CP_MEUR")["FR"]
     print("  TradingView : taux du jour…", flush=True)
     try:
@@ -269,43 +290,47 @@ def rolling_deficit(data):
 
 
 def budget(data):
-    """Par année : pour chaque sous-secteur, recettes et dépenses propres par poste (hors transferts
-    entre administrations), transferts versés aux autres sous-secteurs et solde, en milliards d'euros.
-    Retraites et chômage ne sont pas encore détaillés pour la dernière année : leurs postes sont alors
-    vides et tout va dans « Autres prestations en espèces »."""
-    raw = data.get("budget", {})
+    """Par année : pour chaque sous-secteur, recettes propres par poste et dépenses propres par fonction
+    (hors transferts entre administrations), cotisations retraite imputées de chaque fonction,
+    transferts versés aux autres sous-secteurs et solde, en milliards d'euros. Seules les années où
+    Eurostat détaille par fonction les transferts entre administrations (depuis 2009) sont retenues."""
+    raw, cofog = data.get("budget", {}), data.get("cofog", {})
     get = lambda s, i, y: raw.get(s, {}).get(i, {}).get(y)
+    fget = lambda s, i, f, y: cofog.get(s, {}).get(i, {}).get(f, {}).get(y)
     years = sorted(y for y in raw.get("S13", {}).get("TR", {})
-                   if all(get(s, i, y) is not None for s in SUBSECTORS for i in ("TR", "TE")))
+                   if all(get(s, i, y) is not None for s in SUBSECTORS for i in ("TR", "TE"))
+                   and fget("S1311", "D7_S1313", "GF0108", y) is not None)
     out = {}
     for y in years:
         val = lambda s, i: get(s, i, y) or 0
         calc = lambda s, f: sum(sign * val(s, i) for sign, i in f)
+        fval = lambda s, i, codes: sum(fget(s, i, c, y) or 0 for c in codes)
         # transferts courants, en capital et revenus de la propriété versés de p à r
         to = {p: {r: sum(val(p, f"{t}PAY_{r}") for t in ("D4", "D7", "D9")) for r in SUBSECTORS if r != p}
               for p in SUBSECTORS}
         year = {}
         for s in SUBSECTORS:
             received = sum(to[p][s] for p in SUBSECTORS if p != s)
-            paid = sum(to[s].values())
             rev = [calc(s, f) for _, f in REVENUES[:-1]]
-            exp = [calc(s, f) for _, f in EXPENSES[:-1]]
             rev.append(val(s, "TR") - sum(rev) - received)
-            exp.append(val(s, "TE") - sum(exp) - paid)
-            if min(rev + exp) < -5000:   # petits résidus négatifs (asymétries payeur / receveur) : ignorés à l'affichage
-                print(f"    attention {y} {s} : poste négatif ({min(rev + exp):.0f} M€)")
-            year[s] = {"rev": [round(v / 1000, 2) for v in rev], "exp": [round(v / 1000, 2) for v in exp],
+            intra = [f"{t}_{r}" for t in ("D4", "D7", "D9") for r in SUBSECTORS if r != s]
+            exp = [fval(s, "TE", codes) - sum(fval(s, i, codes) for i in intra) for _, codes in FUNCTIONS]
+            # cotisations imputées réparties selon la masse salariale (militaires pondérés)
+            wages = [fval(s, "D1", codes) + (MILITARY_WEIGHT - 1) * fval(s, "D1", [c for c in codes if c == "GF0201"])
+                     for _, codes in FUNCTIONS]
+            imputed = calc(s, IMPUTED)
+            imp = [imputed * w / sum(wages) if sum(wages) else 0 for w in wages]
+            if min(rev) < -5000:   # petits résidus négatifs (asymétries payeur / receveur) : ignorés à l'affichage
+                print(f"    attention {y} {s} : recette négative ({min(rev):.0f} M€)")
+            md = lambda vs: [round(v / 1000, 2) for v in vs]
+            year[s] = {"rev": md(rev), "exp": md(e - i for e, i in zip(exp, imp)), "imp": md(imp),
                        "to": {r: round(v / 1000, 2) for r, v in to[s].items()},
                        "balance": round((val(s, "TR") - val(s, "TE")) / 1000, 2)}
-        own = sum(sum(year[s]["rev"]) for s in SUBSECTORS) * 1000
-        if abs(own - val("S13", "TR")) > 1000:   # recettes consolidées : à 1 Md€ près
-            print(f"    attention {y} : recettes propres {own:.0f} ≠ recettes consolidées {val('S13', 'TR'):.0f} M€")
         out[y] = year
     gdp = data.get("gdp_fr", {})
     return {"years": years, "sectors": SUBSECTORS, "revenues": [r for r, _ in REVENUES],
-            "expenses": [e for e, _ in EXPENSES], "data": out,
-            "gdp": {y: round(gdp[y] / 1000, 1) for y in years if y in gdp},
-            "detailed": [y for y in years if all(get(s, "D62PAY_GF1002", y) is not None for s in SUBSECTORS)]}
+            "functions": [f for f, _ in FUNCTIONS], "data": out,
+            "gdp": {y: round(gdp[y] / 1000, 1) for y in years if y in gdp}}
 
 
 def quarters_apart(a, b):

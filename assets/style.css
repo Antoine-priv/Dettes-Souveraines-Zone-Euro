@@ -112,4 +112,5 @@ a.nav:hover { opacity: .75; }
 .nlabel { position: absolute; white-space: nowrap; font-size: 12px; line-height: 14px; transform: translateY(-50%); }
 .nlabel span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .nlabel.left { text-align: right; }
+.nlabel.sub { color: var(--text-secondary); font-size: 11px; }
 .nlabel.mid { transform: translate(-50%, -100%); font-weight: 600; background: var(--surface); padding: 1px 6px; border-radius: 4px; }
