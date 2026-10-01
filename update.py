@@ -8,10 +8,14 @@ Taux 10 ans, de la source la plus officielle à la plus récente :
      que la BCE n'a pas encore publiés (moyenne des jours du mois) ;
   3. TradingView : dernier cours (TVC:XX10Y) — taux du jour.
 
-Finances publiques (Eurostat, administrations publiques S13, % du PIB) :
-  - dette brute au sens de Maastricht, trimestrielle (gov_10q_ggdebt) ;
-  - solde public (B9), annuel (gov_10dd_edpt1) — les séries trimestrielles
-    corrigées des variations saisonnières sont incomplètes (Italie absente).
+Finances publiques (Eurostat, administrations publiques S13) :
+  - dette brute au sens de Maastricht en % du PIB, trimestrielle (gov_10q_ggdebt) ;
+  - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
+    / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
+    saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
+    trimestre, on retrouve le chiffre annuel officiel à 0,1 point près. Les
+    années sans données trimestrielles (IE, DE avant 2002) reprennent le
+    chiffre annuel (gov_10dd_edpt1).
 
 Écrit data/taux10y.js, chargé par index.html (fonctionne en ouvrant le fichier
 directement comme sur GitHub Pages). Aucune dépendance : uniquement la
@@ -95,12 +99,12 @@ def fetch_tradingview_live():
     return {r["s"].split(":")[1][:2]: r["d"][0] for r in rows if r["d"][0] is not None}
 
 
-def fetch_eurostat(dataset, na_item, start):
-    """{'XX': {période: valeur}} pour tous les pays — période 'AAAA' ou 'AAAA-Qn'."""
+def fetch_eurostat(dataset, start, **filters):
+    """{'XX': {période: valeur}} pour tous les pays — période 'AAAA' ou 'AAAA-Qn'.
+    Les filtres doivent réduire toutes les dimensions à une valeur, sauf geo et time."""
     geos = [EUROSTAT_GEO.get(c, c) for c in COUNTRIES]
     query = urllib.parse.urlencode(
-        [("format", "JSON"), ("unit", "PC_GDP"), ("sector", "S13"), ("na_item", na_item),
-         ("sinceTimePeriod", start)] + [("geo", g) for g in geos]
+        [("format", "JSON"), ("sinceTimePeriod", start), *filters.items()] + [("geo", g) for g in geos]
     )
     d = json.loads(http(EUROSTAT_URL.format(dataset=dataset) + "?" + query))
     # JSON-stat : index à plat sur les dimensions (seules geo et time ont plusieurs valeurs)
@@ -126,8 +130,11 @@ def download():
         except Exception as exc:
             print(f"    {code} indisponible ({exc})")
     print("  Eurostat : dette et déficit publics…", flush=True)
-    data["debt"] = fetch_eurostat("gov_10q_ggdebt", "GD", "2000-Q1")
-    data["balance"] = fetch_eurostat("gov_10dd_edpt1", "B9", "2000")
+    gov = {"sector": "S13", "unit": "PC_GDP"}
+    data["debt"] = fetch_eurostat("gov_10q_ggdebt", "2000-Q1", na_item="GD", **gov)
+    data["balance"] = fetch_eurostat("gov_10dd_edpt1", "2000", na_item="B9", **gov)
+    data["balance_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q2", na_item="B9", sector="S13", unit="MIO_EUR", s_adj="NSA")
+    data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1999-Q2", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
     print("  TradingView : taux du jour…", flush=True)
     try:
         data["live"] = fetch_tradingview_live()
@@ -182,6 +189,28 @@ def public_finances(series):
     return {"periods": periods, "series": table(series, periods, 2)}
 
 
+def rolling_deficit(data):
+    """{'XX': {'AAAA-Qn': déficit en % du PIB sur les 4 trimestres finissant à Qn}} (déficit > 0)."""
+    out = {}
+    for c in COUNTRIES:
+        b9, gdp = data.get("balance_q", {}).get(c, {}), data.get("gdp_q", {}).get(c, {})
+        qs = sorted(set(b9) & set(gdp))
+        out[c] = {
+            qs[i]: -100 * sum(b9[q] for q in qs[i - 3:i + 1]) / sum(gdp[q] for q in qs[i - 3:i + 1])
+            for i in range(3, len(qs))
+            if qs[i] >= "2000-Q1" and quarters_apart(qs[i - 3], qs[i]) == 3
+        }
+        # Années sans données trimestrielles : chiffre annuel officiel, placé au 4e trimestre
+        for y, v in data.get("balance", {}).get(c, {}).items():
+            if not any(q.startswith(y) for q in out[c]):
+                out[c][f"{y}-Q4"] = -v
+    return out
+
+
+def quarters_apart(a, b):
+    return (int(b[:4]) - int(a[:4])) * 4 + int(b[-1]) - int(a[-1])
+
+
 def main():
     print("Récupération des taux 10 ans…")
     data, from_cache = load_data()
@@ -192,7 +221,7 @@ def main():
         "series": table(monthly, months, 4),
         # Les deux tableaux suivants : listes de périodes + valeurs alignées par pays
         "debt": public_finances(data.get("debt", {})),
-        "deficit": public_finances({c: {y: -v for y, v in s.items()} for c, s in data.get("balance", {}).items()}),
+        "deficit": public_finances(rolling_deficit(data)),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }

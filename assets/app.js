@@ -16,7 +16,6 @@ for (const c of SPREAD_CODES) {
 }
 const monthDate = m => m + "-15";
 const quarterEnd = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n, 0)).toISOString().slice(0, 10); };  // dette = encours fin de trimestre
-const midYear = y => y + "-07-01";
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
 // Un panneau par graphique, de haut en bas ; n = suffixe des axes Plotly (x, x2, x3…)
@@ -27,8 +26,9 @@ const PANELS = [
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
   { title: "Dette publique (% du PIB)", codes: ALL_CODES, hoverformat: "%B %Y",
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP },
-  { title: "Déficit public (% du PIB)", codes: ALL_CODES, hoverformat: "%Y", zero: true,
-    x: DATA.deficit.periods.map(midYear), y: c => DATA.deficit.series[c],
+  { title: "Déficit public (% du PIB)", codes: ALL_CODES, hoverformat: "%B %Y", zero: true,
+    connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
+    x: DATA.deficit.periods.map(quarterEnd), y: c => DATA.deficit.series[c],
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
 ].map((panel, i) => ({ ...panel, n: i ? String(i + 1) : "" }));
 PANELS[0].zero = PANELS[1].zero = true;
@@ -41,7 +41,7 @@ function traces(panel, code) {
     name: label, legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
     showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
     type: "scatter", mode: "lines", x: panel.x, y: vals,
-    line: { color: COLOR(code), width: 2 }, connectgaps: false,
+    line: { color: COLOR(code), width: 2 }, connectgaps: !!panel.connectgaps,
     text: vals.map(v => v == null ? "" : `${label} : ${panel.text(v)}`),
     hovertemplate: "%{text}<extra></extra>",
   };
