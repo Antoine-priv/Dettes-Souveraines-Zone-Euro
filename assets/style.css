@@ -50,7 +50,7 @@ button {
 }
 button:hover { opacity: .75; }
 #autoY[hidden] { display: inline-block; visibility: hidden; }
-#chart { width: 100%; height: calc(100vh - 90px); min-height: 640px; }
+#chart { width: 100%; height: max(1600px, 190vh); }
 /* les zones d'axes sont gérées par notre code (mise à l'échelle façon TradingView) */
 #chart.cur-ns, #chart.cur-ns .drag { cursor: ns-resize !important; }
 #chart.cur-ew, #chart.cur-ew .drag { cursor: ew-resize !important; }

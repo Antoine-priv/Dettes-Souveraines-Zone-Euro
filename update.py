@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Met à jour les données du site : taux 10 ans zone euro (2000 → aujourd'hui).
+"""Met à jour les données du site : taux 10 ans, dette et déficit publics (2000 → aujourd'hui).
 
-Sources, de la plus officielle à la plus récente :
+Taux 10 ans, de la source la plus officielle à la plus récente :
   1. BCE : taux d'intérêt à long terme « critères de convergence » (moyenne
      mensuelle) — historique officiel, publié avec ~1 mois de retard ;
   2. CNBC : clôtures journalières des 2 dernières années — complètent les mois
      que la BCE n'a pas encore publiés (moyenne des jours du mois) ;
   3. TradingView : dernier cours (TVC:XX10Y) — taux du jour.
+
+Finances publiques (Eurostat, administrations publiques S13, % du PIB) :
+  - dette brute au sens de Maastricht, trimestrielle (gov_10q_ggdebt) ;
+  - solde public (B9), annuel (gov_10dd_edpt1) — les séries trimestrielles
+    corrigées des variations saisonnières sont incomplètes (Italie absente).
 
 Écrit data/taux10y.js, chargé par index.html (fonctionne en ouvrant le fichier
 directement comme sur GitHub Pages). Aucune dépendance : uniquement la
@@ -17,13 +22,14 @@ import csv
 import io
 import json
 import sys
+import urllib.parse
 import urllib.request
 from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "data" / "cache.json"
-OUTPUT = ROOT / "data" / "taux10y.js"
+OUTPUT = ROOT / "data" / "data.js"
 
 START = "2000-01"
 COUNTRIES = {  # ordre = ordre des couleurs
@@ -41,6 +47,8 @@ ECB_URL = (
 )
 CNBC_URL = "https://ts-api.cnbc.com/harmony/app/charts/1Y.json?symbol={code}10Y-{code}"
 TV_URL = "https://scanner.tradingview.com/global/scan"
+EUROSTAT_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}"
+EUROSTAT_GEO = {"GR": "EL"}  # Eurostat code la Grèce « EL »
 UA = {"User-Agent": "Mozilla/5.0"}
 
 
@@ -87,6 +95,25 @@ def fetch_tradingview_live():
     return {r["s"].split(":")[1][:2]: r["d"][0] for r in rows if r["d"][0] is not None}
 
 
+def fetch_eurostat(dataset, na_item, start):
+    """{'XX': {période: valeur}} pour tous les pays — période 'AAAA' ou 'AAAA-Qn'."""
+    geos = [EUROSTAT_GEO.get(c, c) for c in COUNTRIES]
+    query = urllib.parse.urlencode(
+        [("format", "JSON"), ("unit", "PC_GDP"), ("sector", "S13"), ("na_item", na_item),
+         ("sinceTimePeriod", start)] + [("geo", g) for g in geos]
+    )
+    d = json.loads(http(EUROSTAT_URL.format(dataset=dataset) + "?" + query))
+    # JSON-stat : index à plat sur les dimensions (seules geo et time ont plusieurs valeurs)
+    geo = {i: g for g, i in d["dimension"]["geo"]["category"]["index"].items()}
+    time = {i: t for t, i in d["dimension"]["time"]["category"]["index"].items()}
+    code = {EUROSTAT_GEO.get(c, c): c for c in COUNTRIES}
+    out = {c: {} for c in COUNTRIES}
+    for k, v in d["value"].items():
+        g, t = divmod(int(k), len(time))
+        out[code[geo[g]]][time[t]] = v
+    return out
+
+
 def download():
     data = {"ecb": {}, "daily": {}, "live": {}, "fetched": datetime.now().strftime("%d/%m/%Y %H:%M")}
     for code, name in COUNTRIES.items():
@@ -98,6 +125,9 @@ def download():
             data["daily"][code] = fetch_cnbc_daily(code)
         except Exception as exc:
             print(f"    {code} indisponible ({exc})")
+    print("  Eurostat : dette et déficit publics…", flush=True)
+    data["debt"] = fetch_eurostat("gov_10q_ggdebt", "GD", "2000-Q1")
+    data["balance"] = fetch_eurostat("gov_10dd_edpt1", "B9", "2000")
     print("  TradingView : taux du jour…", flush=True)
     try:
         data["live"] = fetch_tradingview_live()
@@ -143,6 +173,15 @@ def merge(data):
     return monthly
 
 
+def table(series, periods, digits):
+    return {c: [None if (v := series.get(c, {}).get(p)) is None else round(v, digits) for p in periods] for c in COUNTRIES}
+
+
+def public_finances(series):
+    periods = sorted(set().union(*(s.keys() for s in series.values()))) if series else []
+    return {"periods": periods, "series": table(series, periods, 2)}
+
+
 def main():
     print("Récupération des taux 10 ans…")
     data, from_cache = load_data()
@@ -150,7 +189,10 @@ def main():
     months = sorted(set().union(*(s.keys() for s in monthly.values())))
     payload = {
         "months": months,
-        "series": {c: [None if (v := monthly[c].get(m)) is None else round(v, 4) for m in months] for c in COUNTRIES},
+        "series": table(monthly, months, 4),
+        # Les deux tableaux suivants : listes de périodes + valeurs alignées par pays
+        "debt": public_finances(data.get("debt", {})),
+        "deficit": public_finances({c: {y: -v for y, v in s.items()} for c, s in data.get("balance", {}).items()}),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
@@ -162,6 +204,9 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
+    for key in ("debt", "deficit"):
+        if periods := payload[key]["periods"]:
+            print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
 
 
 if __name__ == "__main__":

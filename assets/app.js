@@ -1,5 +1,6 @@
-// Données générées par update.py (data/taux10y.js → window.DATA)
+// Données générées par update.py (data/data.js → window.DATA)
 const SPREAD_CODES = ["GR", "IT", "ES", "PT", "IE", "FR"];
+const ALL_CODES = [...SPREAD_CODES, "DE"];
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const COLOR = c => css("--s" + (["GR","IT","ES","PT","IE","FR","DE"].indexOf(c) + 1));
 const fmt = v => v == null ? "–" : v.toFixed(2).replace(".", ",");
@@ -14,31 +15,40 @@ for (const c of SPREAD_CODES) {
   spreads[c] = DATA.series[c].map((v, i) => v == null || de[i] == null ? null : +(v - de[i]).toFixed(4));
 }
 const monthDate = m => m + "-15";
+const quarterEnd = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n, 0)).toISOString().slice(0, 10); };  // dette = encours fin de trimestre
+const midYear = y => y + "-07-01";
+const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
+
+// Un panneau par graphique, de haut en bas ; n = suffixe des axes Plotly (x, x2, x3…)
+const PANELS = [
+  { title: "Spread 10 ans vs Allemagne (points de %)", codes: SPREAD_CODES, hoverformat: "%B %Y",
+    x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
+  { title: "Taux 10 ans (%)", codes: ALL_CODES, hoverformat: "%B %Y",
+    x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
+  { title: "Dette publique (% du PIB)", codes: ALL_CODES, hoverformat: "%B %Y",
+    x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP },
+  { title: "Déficit public (% du PIB)", codes: ALL_CODES, hoverformat: "%Y", zero: true,
+    x: DATA.deficit.periods.map(midYear), y: c => DATA.deficit.series[c],
+    text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
+].map((panel, i) => ({ ...panel, n: i ? String(i + 1) : "" }));
+PANELS[0].zero = PANELS[1].zero = true;
 
 // ---- Construction des traces --------------------------------------------------
-// kind = "spread" (graphique du haut) ou "rate" (taux 10 ans, graphique du bas)
-function traces(code, kind) {
+function traces(panel, code) {
   const label = DATA.names[code];
-  const color = COLOR(code);
-  const spread = kind === "spread";
-  const vals = spread ? spreads[code] : DATA.series[code];
-  const fmtV = v => spread ? `${fmt(v)} pt (${Math.round(v * 100)} pb)` : `${fmt(v)} %`;
+  const vals = panel.y(code);
   return {
-    name: label, legendgroup: code, xaxis: spread ? "x" : "x2", yaxis: spread ? "y" : "y2",
-    showlegend: spread || code === "DE",
-    type: "scatter", mode: "lines", x: months.map(monthDate), y: vals,
-    line: { color, width: 2 }, connectgaps: false,
-    text: vals.map(v => v == null ? "" : `${label} : ${fmtV(v)}`),
+    name: label, legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
+    // légende unique, en haut : les spreads + l'Allemagne (absente du premier graphique)
+    showlegend: panel.n === "" || (panel.n === "2" && code === "DE"),
+    type: "scatter", mode: "lines", x: panel.x, y: vals,
+    line: { color: COLOR(code), width: 2 }, connectgaps: false,
+    text: vals.map(v => v == null ? "" : `${label} : ${panel.text(v)}`),
     hovertemplate: "%{text}<extra></extra>",
   };
 }
 
-function buildTraces() {
-  return [
-    ...SPREAD_CODES.map(c => traces(c, "spread")),
-    ...[...SPREAD_CODES, "DE"].map(c => traces(c, "rate")),
-  ];
-}
+const buildTraces = () => PANELS.flatMap(panel => panel.codes.map(c => traces(panel, c)));
 
 // ---- Mise en page ---------------------------------------------------------------
 const EVENTS = [
@@ -65,15 +75,23 @@ function baseLayout() {
     line: { color: css("--zero"), width: 1, dash: "dot" }, layer: "below",
   });
   const shapes = [
-    ...EVENTS.map(([d]) => eventLine(d, "x", "y domain")),
-    ...EVENTS.map(([d]) => eventLine(d, "x2", "y2 domain")),
-    ...["y", "y2"].map(yref => ({ type: "line", xref: "paper", yref, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
+    ...PANELS.flatMap(p => EVENTS.map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
+    ...PANELS.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
   const annotations = EVENTS.map(([d, t]) => ({
     x: d, xref: "x", y: 1, yref: "paper", yanchor: "top", xanchor: "left", xshift: 3, text: t, showarrow: false,
     font: { size: 11, color: css("--text-muted") },
   }));
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
+  const GAP = 0.05, H = (1 - GAP * (PANELS.length - 1)) / PANELS.length;
+  const axes = {};
+  PANELS.forEach((p, i) => {
+    const top = 1 - i * (H + GAP);
+    axes["xaxis" + p.n] = { ...axisCommon, domain: [0, 1], anchor: "y" + p.n, type: "date", hoverformat: p.hoverformat,
+      rangeslider: { visible: false }, ...(p.n && { matches: "x" }) };
+    axes["yaxis" + p.n] = { ...yCommon, domain: [top - H, top] };
+    p.top = top;
+  });
   return {
     uirevision: "keep",            // conserve zoom / déplacements entre deux changements de vue
     paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
@@ -84,13 +102,8 @@ function baseLayout() {
     hoverlabel: { bgcolor: css("--surface"), bordercolor: grid, font: { color: css("--text-primary") } },
     dragmode: "pan",
     legend: { orientation: "h", y: 1, x: 1, xanchor: "right", yanchor: "bottom", font: { color: ink }, itemclick: "toggle", itemdoubleclick: "toggleothers" },
-    xaxis:  { ...axisCommon, domain: [0, 1], anchor: "y", type: "date", rangeslider: { visible: false } },
-    xaxis2: { ...axisCommon, domain: [0, 1], anchor: "y2", type: "date", matches: "x", rangeslider: { visible: false } },
-    yaxis:  { ...yCommon, domain: [0.55, 1] },
-    yaxis2: { ...yCommon, domain: [0, 0.45] },
-    shapes, annotations: [...annotations,
-      chartTitle("Spread 10 ans vs Allemagne (points de %)", 1, 4),
-      chartTitle("Taux 10 ans (%)", 0.45, 4)],
+    ...axes,
+    shapes, annotations: [...annotations, ...PANELS.map(p => chartTitle(p.title, p.top, 4))],
   };
 }
 
@@ -110,7 +123,7 @@ function render() {
   // conserve la fenêtre visible courante
   const cur = chart.layout;
   if (cur) {
-    for (const k of ["xaxis", "xaxis2", "yaxis", "yaxis2"]) {
+    for (const k of PANELS.flatMap(p => ["xaxis" + p.n, "yaxis" + p.n])) {
       if (cur[k] && cur[k].range && !cur[k].autorange) layout[k].range = cur[k].range.slice();
     }
   }
@@ -125,11 +138,11 @@ function setAutoY(on) {
   if (on) fitY();
 }
 
-// Ajuste l'échelle des taux aux seules données visibles (séries affichées)
+// Ajuste l'échelle verticale de chaque graphique aux seules données visibles (séries affichées)
 function fitY() {
   const [x0, x1] = xa().range.map(xa().r2l);
   const upd = {};
-  for (const [axis, yname] of [["y", "yaxis"], ["y2", "yaxis2"]]) {
+  for (const [axis, yname] of PANELS.map(p => ["y" + p.n, "yaxis" + p.n])) {
     let lo = Infinity, hi = -Infinity;
     for (const t of chart.data) {
       if (t.yaxis !== axis || t.visible === "legendonly") continue;
@@ -148,7 +161,7 @@ function fitY() {
 
 function setX(rangeL) {  // bornes en millisecondes
   const r = rangeL.map(xa().l2r);
-  return Plotly.relayout(chart, { "xaxis.range": r, "xaxis2.range": r });
+  return Plotly.relayout(chart, Object.fromEntries(PANELS.map(p => [`xaxis${p.n}.range`, r])));
 }
 
 
@@ -157,7 +170,7 @@ const X_BAND = 34;
 function hitTest(ev) {
   const fl = chart._fullLayout, s = fl._size, r = chart.getBoundingClientRect();
   const px = ev.clientX - r.left, py = ev.clientY - r.top;
-  for (const yname of ["yaxis", "yaxis2"]) {
+  for (const yname of PANELS.map(p => "yaxis" + p.n)) {
     const d = fl[yname].domain, top = s.t + (1 - d[1]) * s.h, bot = s.t + (1 - d[0]) * s.h;
     const inX = px >= s.l && px <= s.l + s.w;
     if (px > s.l + s.w && py >= top && py <= bot) return { kind: "y", axis: yname };
@@ -209,10 +222,11 @@ window.addEventListener("mousemove", ev => {
 });
 window.addEventListener("mouseup", () => { drag = null; });
 
-// Molette : sur le tracé ou l'axe du temps = zoom temporel ; sur l'axe des taux = échelle des taux
+// Molette : sur l'axe du temps (ou Ctrl + molette sur le tracé) = zoom temporel ; sur l'axe vertical = échelle.
+// Sur le tracé sans Ctrl, la molette fait défiler la page.
 chart.addEventListener("wheel", ev => {
   const hit = hitTest(ev);
-  if (!hit) return;
+  if (!hit || (hit.kind === "plot" && !ev.ctrlKey && !ev.metaKey)) return;
   ev.preventDefault(); ev.stopPropagation();
   const delta = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;
   const f = Math.exp(delta * 0.0015);           // molette vers le bas = dézoomer
