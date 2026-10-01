@@ -21,13 +21,13 @@ const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
 // Un panneau par graphique, de haut en bas ; n = suffixe des axes Plotly (x, x2, x3…)
 const PANELS = [
-  { title: "Spread 10 ans vs Allemagne (points de %)", codes: SPREAD_CODES, hoverformat: "%B %Y",
+  { title: "Spread 10 ans vs Allemagne (points de %)", codes: SPREAD_CODES,
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
-  { title: "Taux 10 ans (%)", codes: ALL_CODES, hoverformat: "%B %Y",
+  { title: "Taux 10 ans (%)", codes: ALL_CODES,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
-  { title: "Dette publique (% du PIB)", codes: ALL_CODES, hoverformat: "%B %Y",
+  { title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP },
-  { title: "Déficit public (% du PIB)", codes: ALL_CODES, hoverformat: "%B %Y", zero: true,
+  { title: "Déficit public (% du PIB)", codes: ALL_CODES, zero: true,
     connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(quarterEnd), y: c => DATA.deficit.series[c],
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
@@ -43,8 +43,6 @@ function traces(panel, code) {
     showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
     type: "scatter", mode: "lines", x: panel.x, y: vals,
     line: { color: COLOR(code), width: 2 }, connectgaps: !!panel.connectgaps,
-    text: vals.map(v => v == null ? "" : `${label} : ${panel.text(v)}`),
-    hovertemplate: "%{text}<extra></extra>",
   };
 }
 
@@ -68,7 +66,6 @@ function baseLayout() {
   const ink = css("--text-secondary"), grid = css("--grid");
   const axisCommon = {
     gridcolor: grid, linecolor: grid, tickfont: { color: ink }, zeroline: false,
-    showspikes: true, spikemode: "across", spikethickness: 1, spikecolor: css("--text-muted"), spikedash: "dot",
   };
   const eventLine = (d, xref, yref) => ({
     type: "line", xref, yref, x0: d, x1: d, y0: 0, y1: 1,
@@ -87,7 +84,7 @@ function baseLayout() {
   const axes = {};
   PANELS.forEach((p, i) => {
     const top = 1 - i * (H + GAP);
-    axes["xaxis" + p.n] = { ...axisCommon, domain: [0, 1], anchor: "y" + p.n, type: "date", hoverformat: p.hoverformat,
+    axes["xaxis" + p.n] = { ...axisCommon, domain: [0, 1], anchor: "y" + p.n, type: "date",
       rangeslider: { visible: false }, ...(p.n && { matches: "x" }) };
     axes["yaxis" + p.n] = { ...yCommon, domain: [top - H, top] };
     p.top = top;
@@ -98,8 +95,7 @@ function baseLayout() {
     font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", color: css("--text-primary") },
     separators: ", ",
     margin: { l: 16, r: 56, t: 40, b: 32 },
-    hovermode: "x unified",
-    hoverlabel: { bgcolor: css("--surface"), bordercolor: grid, font: { color: css("--text-primary") } },
+    hovermode: false,              // infobulle maison (voir « Survol »), plus fluide que celle de Plotly
     dragmode: "pan",
     ...axes,
     shapes, annotations: [...annotations, ...PANELS.map(p => chartTitle(p.title, p.top, 4))],
@@ -174,7 +170,7 @@ function hitTest(ev) {
     const inX = px >= s.l && px <= s.l + s.w;
     if (px > s.l + s.w && py >= top && py <= bot) return { kind: "y", axis: yname };
     if (inX && py > bot && py < bot + X_BAND) return { kind: "x", px: s.l + s.w };
-    if (inX && py >= top && py <= bot) return { kind: "plot", px };
+    if (inX && py >= top && py <= bot) return { kind: "plot", px, axis: yname };
   }
   return null;
 }
@@ -297,6 +293,54 @@ themeBtn.onclick = () => {
   paintLegend();
   render();
 };
+
+// ---- Survol : ligne verticale sur tous les graphiques + infobulle --------------------
+// Suit la souris à chaque image (requestAnimationFrame) ; valeurs = point le plus proche de chaque courbe visible.
+const hover = document.getElementById("hover");
+const tip = document.getElementById("tip");
+const vlines = PANELS.map(() => hover.appendChild(Object.assign(document.createElement("div"), { className: "vline" })));
+const stamps = PANELS.map(p => p.x.map(Date.parse));
+const monthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
+
+function nearest(ts, t) {   // indice de la date la plus proche (ts trié)
+  let lo = 0, hi = ts.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; ts[mid] <= t ? lo = mid : hi = mid; }
+  return t - ts[lo] <= ts[hi] - t ? lo : hi;
+}
+
+function hideHover() { hover.hidden = true; }
+function showHover(ev, hit) {
+  const fl = chart._fullLayout, s = fl._size, r = chart.getBoundingClientRect();
+  const px = ev.clientX - r.left, py = ev.clientY - r.top;
+  const t = pxToL(px);
+  PANELS.forEach((p, i) => {
+    const d = fl["yaxis" + p.n].domain;
+    Object.assign(vlines[i].style, { left: px + "px", top: s.t + (1 - d[1]) * s.h + "px", height: (d[1] - d[0]) * s.h + "px" });
+  });
+  const pi = PANELS.findIndex(p => "yaxis" + p.n === hit.axis), panel = PANELS[pi];
+  const i = nearest(stamps[pi], t);
+  const rows = panel.codes.filter(c => !state.hidden.has(c))
+    .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
+  tip.innerHTML = `<div class="date">${monthYear.format(stamps[pi][i])}</div>` + rows.map(({ c, v }) =>
+    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
+  hover.hidden = false;
+  // à droite du curseur, ou à gauche s'il n'y a pas la place
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  const left = px + 16 + w > s.l + s.w ? px - 16 - w : px + 16;
+  tip.style.transform = `translate(${left}px, ${Math.min(Math.max(py - h / 2, 0), r.height - h)}px)`;
+}
+
+let hoverFrame = null, lastEv = null;
+chart.addEventListener("mousemove", ev => {
+  lastEv = ev;
+  if (hoverFrame) return;
+  hoverFrame = requestAnimationFrame(() => {
+    hoverFrame = null;
+    const hit = hitTest(lastEv);
+    hit?.kind === "plot" && !drag ? showHover(lastEv, hit) : hideHover();
+  });
+});
+chart.addEventListener("mouseleave", hideHover);
 
 paintLegend();
 render().then(() => { attachPlotlyEvents(); showDefault(); });

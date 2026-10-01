@@ -59,6 +59,18 @@ button {
 button:hover { opacity: .75; }
 #autoY[hidden] { display: inline-block; visibility: hidden; }
 #chart { width: 100%; height: max(1600px, 190vh); }
+#stage { position: relative; }
+#hover { position: absolute; inset: 0; pointer-events: none; }
+#hover[hidden] { display: none; }
+.vline { position: absolute; border-left: 1px dashed var(--text-muted); }
+#tip {
+  position: absolute; top: 0; left: 0; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--grid); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; line-height: 1.6; box-shadow: 0 2px 8px rgb(0 0 0 / .12);
+}
+#tip .date { color: var(--text-secondary); }
+#tip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+#tip .sw { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 /* les zones d'axes sont gérées par notre code (mise à l'échelle façon TradingView) */
 #chart.cur-ns, #chart.cur-ns .drag { cursor: ns-resize !important; }
 #chart.cur-ew, #chart.cur-ew .drag { cursor: ew-resize !important; }
