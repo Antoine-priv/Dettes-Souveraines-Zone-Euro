@@ -84,8 +84,9 @@ button:hover { opacity: .75; }
 }
 .ptitle:active { cursor: grabbing; }
 .ptitle.folded { color: var(--text-secondary); }
+.ptitle .ttl { position: relative; }
 .ptitle .fold {
-  position: absolute; left: -22px; bottom: 10px; width: 18px; height: 18px; padding: 0;
+  position: absolute; left: -22px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0;
   font-size: 14px; line-height: 18px; text-align: center; border-radius: 4px;
   background: transparent; color: var(--text-muted); opacity: 0; transition: opacity .15s;
 }

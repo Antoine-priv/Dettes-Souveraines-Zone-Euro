@@ -71,13 +71,17 @@ const EVENTS = [
 
 // Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
 const TITLE_H = 44, AXIS_H = 40;
-function geometry() {
+// scale : {clé: 0…1} pour un panneau en cours de repli / dépliage (animation)
+function geometry(scale = {}) {
   const plotH = Math.max(320, Math.round(innerHeight * 0.42));
   let y = 0;
   const blocks = state.order.map(key => {
     const b = { key, top: y };
     y += TITLE_H;
-    if (!state.folded.has(key)) { b.plotTop = y; b.plotBottom = y += plotH; y += AXIS_H; }
+    if (!state.folded.has(key)) {
+      const k = scale[key] ?? 1;
+      b.plotTop = y; b.plotBottom = y += Math.max(1, plotH * k); y += AXIS_H * k;
+    }
     b.bottom = y;
     return b;
   });
@@ -137,13 +141,13 @@ const chart = document.getElementById("chart");
 const config = { responsive: true, scrollZoom: false, displayModeBar: false, locale: "fr", doubleClick: false };
 
 // Reconstruit la figure (ordre, repli, thème) en conservant la fenêtre de temps et, en échelle manuelle, les échelles verticales
-function render() {
+function render(scale) {
   const fl = chart._fullLayout;
   const xRange = shown.length && fl?.xaxis?.range?.slice();
   const yRanges = Object.fromEntries(shown.map(p => [p.key, fl?.["yaxis" + p.n]?.range?.slice()]));
   shown = state.order.map(k => PANEL[k]).filter(p => !state.folded.has(p.key));
   shown.forEach((p, i) => { p.n = i ? String(i + 1) : ""; });
-  const geo = geometry();
+  const geo = geometry(scale);
   const layout = baseLayout(geo);
   for (const p of shown) {
     if (xRange) layout["xaxis" + p.n].range = xRange;
@@ -389,17 +393,61 @@ function paintTitles(geo) {
   titles.innerHTML = geo.blocks.map(b => {
     const folded = state.folded.has(b.key);
     return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
-      `<button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
-      `<span>${PANEL[b.key].title}</span></div>`;
+      `<span class="ttl"><button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
+      `${PANEL[b.key].title}</span></div>`;
   }).join("");
   titles.geo = geo;
 }
+function placeTitles(geo) {
+  for (const el of titles.children) el.style.top = geo.blocks.find(b => b.key === el.dataset.key).top + "px";
+  titles.geo = geo;
+}
+
+// Animation de repli / dépliage : on fait varier la hauteur du panneau image par image
+// (chaque image attend la fin du redessin Plotly précédent pour rester fluide)
+const FOLD_MS = 280;
+const ease = t => t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+let animating = false;
+function animatePanel(key, from, to) {
+  return new Promise(done => {
+    const t0 = performance.now();
+    const frame = () => {
+      const t = Math.min(1, (performance.now() - t0) / FOLD_MS);
+      const geo = geometry({ [key]: from + (to - from) * ease(t) });
+      const frac = px => 1 - px / geo.height;
+      const upd = { height: geo.height };
+      for (const p of shown) {
+        const b = geo.blocks.find(b => b.key === p.key);
+        upd[`yaxis${p.n}.domain`] = [frac(b.plotBottom), frac(b.plotTop)];
+      }
+      chart.style.height = geo.height + "px";
+      placeTitles(geo);
+      Plotly.relayout(chart, upd).then(() => t < 1 ? requestAnimationFrame(frame) : done());
+    };
+    frame();
+  });
+}
+async function toggleFold(key) {
+  if (animating) return;
+  animating = true;
+  hideHover();
+  if (state.folded.has(key)) {   // dépliage : on l'insère à hauteur nulle, puis on l'agrandit
+    state.folded.delete(key);
+    await render({ [key]: 0 });
+    await animatePanel(key, 0, 1);
+  } else {                       // repli : on le réduit, puis on le retire de la figure
+    titles.querySelector(`[data-key="${key}"]`).classList.add("folded");
+    await animatePanel(key, 1, 0);
+    state.folded.add(key);
+    await render();
+  }
+  paintTitles(titles.geo);
+  savePanels();
+  animating = false;
+}
 titles.addEventListener("click", ev => {
   const key = ev.target.closest(".fold") && ev.target.closest(".ptitle").dataset.key;
-  if (!key) return;
-  state.folded.has(key) ? state.folded.delete(key) : state.folded.add(key);
-  savePanels();
-  render();
+  if (key) toggleFold(key);
 });
 
 // Position d'insertion = frontière de bloc la plus proche du curseur
@@ -430,10 +478,13 @@ stage.addEventListener("drop", ev => {
   const order = state.order.filter(k => k !== dragKey);
   order.splice(i > from ? i - 1 : i, 0, dragKey);
   state.order = order;
+  endDrag();   // avant render() : le titre glissé est recréé, son « dragend » ne remonterait plus
   savePanels();
   render();
 });
-document.addEventListener("dragend", () => { dragKey = null; dropLine.hidden = true; });
+const endDrag = () => { dragKey = null; dropLine.hidden = true; };
+document.addEventListener("dragend", endDrag);
+stage.addEventListener("dragleave", ev => { if (!stage.contains(ev.relatedTarget)) dropLine.hidden = true; });
 
 paintLegend();
 render().then(() => { attachPlotlyEvents(); showDefault(); });
