@@ -63,6 +63,8 @@ button:hover { opacity: .75; }
 #hover { position: absolute; inset: 0; pointer-events: none; }
 #hover[hidden] { display: none; }
 .vline { position: absolute; border-left: 1px dashed var(--text-muted); }
+.hline { position: absolute; border-top: 1px dashed var(--text-muted); }
+.hline[hidden] { display: none; }
 #tip {
   position: absolute; top: 0; left: 0; white-space: nowrap;
   background: var(--surface); border: 1px solid var(--grid); border-radius: 6px;

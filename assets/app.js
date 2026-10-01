@@ -299,6 +299,7 @@ themeBtn.onclick = () => {
 const hover = document.getElementById("hover");
 const tip = document.getElementById("tip");
 const vlines = PANELS.map(() => hover.appendChild(Object.assign(document.createElement("div"), { className: "vline" })));
+const hline = hover.appendChild(Object.assign(document.createElement("div"), { className: "hline" }));   // courbe unique seulement
 const stamps = PANELS.map(p => p.x.map(Date.parse));
 const monthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
 
@@ -323,6 +324,11 @@ function showHover(ev, hit) {
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
   tip.innerHTML = `<div class="date">${monthYear.format(stamps[pi][i])}</div>` + rows.map(({ c, v }) =>
     `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
+  // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
+  const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
+  const d = ya.domain, inside = y >= s.t + (1 - d[1]) * s.h && y <= s.t + (1 - d[0]) * s.h;
+  hline.hidden = !inside;
+  if (inside) Object.assign(hline.style, { top: y + "px", left: s.l + "px", width: s.w + "px" });
   hover.hidden = false;
   // à droite du curseur, ou à gauche s'il n'y a pas la place
   const w = tip.offsetWidth, h = tip.offsetHeight;
