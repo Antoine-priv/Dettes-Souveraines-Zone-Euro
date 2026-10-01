@@ -60,6 +60,7 @@ EUROSTAT_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/d
 EUROSTAT_GEO = {"GR": "EL"}  # Eurostat code la Grèce « EL »
 UA = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_BUDGET = ROOT / "data" / "budget.js"
+BUDGET_START = "2005"
 
 # Budget de la France : sous-secteurs des administrations publiques (ordre = ordre des couleurs)
 SUBSECTORS = {"S1311": "État", "S1314": "Sécurité sociale", "S1313": "Collectivités locales"}
@@ -160,7 +161,7 @@ def fetch_eurostat(dataset, start, **filters):
 def fetch_budget():
     """{secteur: {opération: {'AAAA': valeur}}} pour la France, en millions d'euros."""
     query = urllib.parse.urlencode(
-        [("format", "JSON"), ("geo", "FR"), ("unit", "MIO_EUR"), ("sinceTimePeriod", "1995")]
+        [("format", "JSON"), ("geo", "FR"), ("unit", "MIO_EUR"), ("sinceTimePeriod", BUDGET_START)]
         + [("sector", s) for s in ("S13", *SUBSECTORS)] + [("na_item", i) for i in BUDGET_ITEMS]
     )
     d = json.loads(http(EUROSTAT_URL.format(dataset="gov_10a_main") + "?" + query))
@@ -194,7 +195,7 @@ def download():
     data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1999-Q2", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
     print("  Eurostat : budget de la France…", flush=True)
     data["budget"] = fetch_budget()
-    data["gdp_fr"] = fetch_eurostat("nama_10_gdp", "1995", na_item="B1GQ", unit="CP_MEUR")["FR"]
+    data["gdp_fr"] = fetch_eurostat("nama_10_gdp", BUDGET_START, na_item="B1GQ", unit="CP_MEUR")["FR"]
     print("  TradingView : taux du jour…", flush=True)
     try:
         data["live"] = fetch_tradingview_live()

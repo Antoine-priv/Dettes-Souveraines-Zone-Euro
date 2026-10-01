@@ -49,10 +49,6 @@ function sankey() {
           acc += v;
         });
       }
-      const scale = Math.min(...cols.map(c => {
-        const col = used.filter(n => n.col === c);
-        return (height - (col.length - 1) * pad) / col.reduce((s, n) => s + Math.max(n.in, n.out), 0);
-      }));
       const ids = new Map(used.map((n, i) => [nodes.indexOf(n), i]));
       const color = s => css(s === "deficit" ? DEFICIT_VAR : SECTOR_VAR[s]);
       // Infobulle d'un nœud : total puis répartition par sous-secteur
@@ -63,14 +59,15 @@ function sankey() {
         if (rows.length < 2) return "";
         return "<br>" + rows.sort((a, b) => b[1] - a[1]).map(([s, v]) => `${B.sectors[s]} : ${md(v / 2 ** (n.in && n.out ? 1 : 0))}`).join("<br>");
       };
+      // libellés dessinés en HTML hors du diagramme (voir placeLabels)
+      this.labels = used.map(n => ({ col: n.col === cols[0] ? "left" : n.col === cols.at(-1) ? "right" : "mid",
+                                     text: n.label, value: md(Math.max(n.in, n.out)) }));
       return {
         type: "sankey", arrangement: "fixed", valueformat: ".0f",
-        textfont: { color: css("--text-primary"), size: 12, family: "system-ui, -apple-system, Segoe UI, sans-serif" },
         hoverlabel: { bgcolor: css("--surface"), bordercolor: css("--grid"), font: { color: css("--text-primary") } },
         node: {
           pad, thickness: 14, line: { width: 0 },
-          // libellé masqué si le nœud est trop fin pour le porter (l'infobulle reste)
-          label: used.map(n => Math.max(n.in, n.out) * scale < 2 ? "" : `${n.label}  ${md(Math.max(n.in, n.out))}`),
+          label: used.map(() => ""),
           color: used.map(n => n.color ? css(n.color) : css("--zero")),
           x: used.map(n => n.x), y: used.map(n => n.y),
           customdata: used.map(n => `<b>${n.label}</b><br>${md(Math.max(n.in, n.out))}${pib(Math.max(n.in, n.out))}${split(n)}`),
@@ -136,12 +133,39 @@ function unconsolidated(d) {
 
 // ---- Rendu ---------------------------------------------------------------------------------------
 const CONFIG = { displayModeBar: false, responsive: true };
+const SIDE = 280;   // largeur réservée aux libellés de part et d'autre du diagramme
+const labels = {};
 function draw(id, g, height) {
   const layout = {
-    height, margin: { l: 8, r: 8, t: 8, b: 8 },
+    height, margin: { l: SIDE, r: SIDE, t: 28, b: 8 },
     paper_bgcolor: css("--surface"), font: { color: css("--text-primary") },
   };
-  Plotly.react(id, [g.build(height - 16)], layout, CONFIG);
+  const trace = g.build(height - 36);
+  labels[id] = g.labels;
+  const gd = document.getElementById(id);
+  Plotly.react(gd, [trace], layout, CONFIG).then(() => placeLabels(id));
+  if (!gd._labelsHooked) { gd._labelsHooked = true; gd.on("plotly_afterplot", () => placeLabels(id)); }
+}
+
+// Libellés à gauche des nœuds de gauche, à droite de ceux de droite, au-dessus de ceux du milieu
+function placeLabels(id) {
+  const gd = document.getElementById(id);
+  let layer = gd.parentNode.querySelector(".labels");
+  if (!layer) layer = gd.parentNode.appendChild(Object.assign(document.createElement("div"), { className: "labels" }));
+  const box = gd.parentNode.getBoundingClientRect();
+  layer.innerHTML = "";
+  gd.querySelectorAll(".sankey-node").forEach((el, i) => {
+    const info = labels[id][el.__data__?.node?.pointNumber ?? i];
+    const r = el.querySelector(".node-rect").getBoundingClientRect();
+    if (!info || r.height < 2) return;   // nœud trop fin : infobulle seulement
+    const div = layer.appendChild(document.createElement("div"));
+    div.className = "nlabel " + info.col;
+    div.innerHTML = `${info.text} <span>${info.value}</span>`;
+    const top = r.top - box.top, mid = top + r.height / 2;
+    if (info.col === "left") Object.assign(div.style, { right: box.right - r.left + 8 + "px", top: mid + "px" });
+    else if (info.col === "right") Object.assign(div.style, { left: r.right - box.left + 8 + "px", top: mid + "px" });
+    else Object.assign(div.style, { left: r.left - box.left + r.width / 2 + "px", top: top - 4 + "px" });
+  });
 }
 
 function totals(d, consolidated) {

@@ -105,3 +105,9 @@ a.nav:hover { opacity: .75; }
 #legend .item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 13px; }
 .sankey h2 { font-size: 18px; font-weight: 700; margin: 16px 0 4px; }
 .sankey h2 span { font-size: 14px; font-weight: 400; color: var(--text-secondary); margin-left: 8px; }
+.sankey { position: relative; }
+.sankey .labels { position: absolute; inset: 0; pointer-events: none; }
+.nlabel { position: absolute; white-space: nowrap; font-size: 12px; line-height: 14px; transform: translateY(-50%); }
+.nlabel span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.nlabel.left { text-align: right; }
+.nlabel.mid { transform: translate(-50%, -100%); font-weight: 600; background: var(--surface); padding: 1px 6px; border-radius: 4px; }
