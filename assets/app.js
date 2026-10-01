@@ -5,7 +5,7 @@ const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).
 const COLOR = c => css("--s" + (["GR","IT","ES","PT","IE","FR","DE"].indexOf(c) + 1));
 const fmt = v => v == null ? "–" : v.toFixed(2).replace(".", ",");
 
-const state = { autoY: true };
+const state = { autoY: true, hidden: new Set() };   // hidden : pays masqués via la légende
 
 // ---- Préparation des données ------------------------------------------------
 const months = DATA.months;
@@ -39,8 +39,7 @@ function traces(panel, code) {
   const vals = panel.y(code);
   return {
     name: label, legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
-    // légende unique, en haut : les spreads + l'Allemagne (absente du premier graphique)
-    showlegend: panel.n === "" || (panel.n === "2" && code === "DE"),
+    showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
     type: "scatter", mode: "lines", x: panel.x, y: vals,
     line: { color: COLOR(code), width: 2 }, connectgaps: false,
     text: vals.map(v => v == null ? "" : `${label} : ${panel.text(v)}`),
@@ -101,7 +100,6 @@ function baseLayout() {
     hovermode: "x unified",
     hoverlabel: { bgcolor: css("--surface"), bordercolor: grid, font: { color: css("--text-primary") } },
     dragmode: "pan",
-    legend: { orientation: "h", y: 1, x: 1, xanchor: "right", yanchor: "bottom", font: { color: ink }, itemclick: "toggle", itemdoubleclick: "toggleothers" },
     ...axes,
     shapes, annotations: [...annotations, ...PANELS.map(p => chartTitle(p.title, p.top, 4))],
   };
@@ -222,28 +220,21 @@ window.addEventListener("mousemove", ev => {
 });
 window.addEventListener("mouseup", () => { drag = null; });
 
-// Molette : sur l'axe du temps (ou Ctrl + molette sur le tracé) = zoom temporel ; sur l'axe vertical = échelle.
-// Sur le tracé sans Ctrl, la molette fait défiler la page.
+// Ctrl + molette sur le tracé = zoom temporel ; ailleurs (axes compris), la molette fait défiler la page.
 chart.addEventListener("wheel", ev => {
   const hit = hitTest(ev);
-  if (!hit || (hit.kind === "plot" && !ev.ctrlKey && !ev.metaKey)) return;
+  if (hit?.kind !== "plot" || !(ev.ctrlKey || ev.metaKey)) return;
   ev.preventDefault(); ev.stopPropagation();
   const delta = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;
-  const f = Math.exp(delta * 0.0015);           // molette vers le bas = dézoomer
-  if (hit.kind === "y") {
-    setAutoY(false);
-    throttle(() => scaleY(hit.axis, chart._fullLayout[hit.axis].range, f));
-  } else {
-    throttle(() => scaleX(xa().range.map(xa().r2l), f, pxToL(hit.px)));
-  }
+  throttle(() => scaleX(xa().range.map(xa().r2l), Math.exp(delta * 0.0015), pxToL(hit.px)));   // vers le bas = dézoomer
 }, { capture: true, passive: false });
 
-// Double-clic : axe des taux = échelle auto ; axe du temps ou tracé = toute la période
+// Double-clic : axe vertical = échelle auto ; axe du temps ou tracé = vue initiale
 chart.addEventListener("dblclick", ev => {
   const hit = hitTest(ev);
   if (!hit) return;
   if (hit.kind === "y") setAutoY(true);
-  else showAll();
+  else showDefault();
 });
 // À brancher après le premier rendu (chart.on n'existe qu'ensuite)
 function attachPlotlyEvents() {
@@ -252,15 +243,6 @@ function attachPlotlyEvents() {
     if (state.autoY && Object.keys(ev).some(k => k.startsWith("xaxis"))) fitY();
   });
   chart.on("plotly_restyle", () => state.autoY && fitY());   // pays masqué / affiché
-  // Double-clic sur la légende : isoler un pays dans les deux graphiques (l'Allemagne reste affichée en référence).
-  // Si le pays est déjà isolé, le double-clic réaffiche tous les pays.
-  chart.on("plotly_legenddoubleclick", ev => {
-    const g = chart.data[ev.curveNumber].legendgroup;
-    const keep = t => t.legendgroup === g || t.legendgroup === "DE";
-    const othersShown = chart.data.some(t => !keep(t) && t.visible !== "legendonly");
-    Plotly.restyle(chart, { visible: chart.data.map(t => !othersShown || keep(t) ? true : "legendonly") });
-    return false;   // annule le comportement par défaut de Plotly
-  });
 }
 
 // ---- Contrôles --------------------------------------------------------------------
@@ -268,8 +250,37 @@ document.getElementById("autoY").onclick = () => setAutoY(true);
 
 const lastMonth = months[months.length - 1];
 const END = Date.UTC(+lastMonth.slice(0, 4), +lastMonth.slice(5, 7), 15);
-const FIRST = Date.UTC(1999, 10, 15);
-const showAll = () => { setAutoY(true); return setX([FIRST, END]); };
+const START = Date.UTC(2005, 0, 1);   // vue initiale ; les données depuis 2000 restent accessibles en déplaçant
+const showDefault = () => { setAutoY(true); return setX([START, END]); };
+
+// ---- Légende (en haut de page, toujours visible) ---------------------------------
+// Clic = masquer / afficher un pays ; double-clic = l'isoler (l'Allemagne reste en référence), ou tout réafficher.
+const legend = document.getElementById("legend");
+function paintLegend() {
+  legend.innerHTML = ALL_CODES.map(c =>
+    `<button data-c="${c}" class="${state.hidden.has(c) ? "off" : ""}"><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]}</button>`).join("");
+}
+function applyHidden() {
+  paintLegend();
+  return Plotly.restyle(chart, { visible: chart.data.map(t => state.hidden.has(t.legendgroup) ? "legendonly" : true) });
+}
+let clickTimer = null;
+legend.addEventListener("click", ev => {
+  const c = ev.target.closest("button")?.dataset.c;
+  if (!c) return;
+  clearTimeout(clickTimer);
+  if (ev.detail === 2) {   // double-clic
+    const others = ALL_CODES.filter(x => x !== c && x !== "DE");
+    const isolated = others.every(x => state.hidden.has(x)) && !state.hidden.has(c);
+    state.hidden = new Set(isolated ? [] : others);
+    applyHidden();
+  } else if (ev.detail === 1) {
+    clickTimer = setTimeout(() => {
+      state.hidden.has(c) ? state.hidden.delete(c) : state.hidden.add(c);
+      applyHidden();
+    }, 250);
+  }
+});
 // ---- Thème clair / sombre -----------------------------------------------------------
 const themeBtn = document.getElementById("theme");
 const isDark = () => getComputedStyle(document.documentElement).colorScheme === "dark";
@@ -282,7 +293,9 @@ themeBtn.onclick = () => {
   try { localStorage.setItem("theme", t); } catch {}
   paintThemeBtn();
   layout = baseLayout();
+  paintLegend();
   render();
 };
 
-render().then(() => { attachPlotlyEvents(); showAll(); });
+paintLegend();
+render().then(() => { attachPlotlyEvents(); showDefault(); });

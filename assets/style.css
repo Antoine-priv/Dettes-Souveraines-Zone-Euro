@@ -38,11 +38,19 @@
 }
 * { box-sizing: border-box; }
 body {
-  margin: 0; padding: 16px 20px;
+  margin: 0; padding: 0 20px 16px;
   background: var(--surface); color: var(--text-primary);
   font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+header {
+  position: sticky; top: 0; z-index: 10; background: var(--surface);
+  padding: 16px 0 8px; border-bottom: 1px solid var(--grid); margin-bottom: 8px;
+}
 .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#legend { display: flex; flex-wrap: wrap; gap: 4px; }
+#legend button { background: transparent; display: inline-flex; align-items: center; gap: 6px; }
+#legend button.off { opacity: .35; }
+#legend .sw { width: 14px; height: 3px; border-radius: 2px; }
 h1 { font-size: 22px; font-weight: 650; margin: 0 auto 0 0; }
 button {
   font: inherit; font-size: 13px; border: 0; color: var(--text-primary); background: var(--btn-bg);
