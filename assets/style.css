@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #85847f;
+  --grid: #e6e5e0;
+  --zero: #b5b4ad;
+  --btn-bg: #f0efea;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #4a3aa7; --s7: #52514e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --grid: #2e2e2c;
+    --zero: #5a5955;
+    --btn-bg: #2a2a28;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #9085e9; --s7: #c3c2b7;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e86;
+  --grid: #2e2e2c;
+  --zero: #5a5955;
+  --btn-bg: #2a2a28;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #9085e9; --s7: #c3c2b7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px 20px;
+  background: var(--surface); color: var(--text-primary);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+h1 { font-size: 22px; font-weight: 650; margin: 0 auto 0 0; }
+button {
+  font: inherit; font-size: 13px; border: 0; color: var(--text-primary); background: var(--btn-bg);
+  padding: 5px 10px; border-radius: 6px; cursor: pointer;
+}
+button:hover { opacity: .75; }
+#autoY[hidden] { display: inline-block; visibility: hidden; }
+#chart { width: 100%; height: calc(100vh - 90px); min-height: 640px; }
+/* les zones d'axes sont gérées par notre code (mise à l'échelle façon TradingView) */
+#chart.cur-ns, #chart.cur-ns .drag { cursor: ns-resize !important; }
+#chart.cur-ew, #chart.cur-ew .drag { cursor: ew-resize !important; }
