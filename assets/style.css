@@ -58,7 +58,7 @@ button {
 }
 button:hover { opacity: .75; }
 #autoY[hidden] { display: inline-block; visibility: hidden; }
-#chart { width: 100%; height: max(1600px, 190vh); }
+#chart { width: 100%; }
 #stage { position: relative; }
 #hover { position: absolute; inset: 0; pointer-events: none; }
 #hover[hidden] { display: none; }
@@ -76,3 +76,20 @@ button:hover { opacity: .75; }
 /* les zones d'axes sont gérées par notre code (mise à l'échelle façon TradingView) */
 #chart.cur-ns, #chart.cur-ns .drag { cursor: ns-resize !important; }
 #chart.cur-ew, #chart.cur-ew .drag { cursor: ew-resize !important; }
+/* titres des graphiques : bouton de repli discret au survol, glisser pour réordonner */
+#titles { position: absolute; inset: 0 0 auto 0; pointer-events: none; }
+.ptitle {
+  position: absolute; left: 16px; height: 44px; display: flex; align-items: flex-end; padding-bottom: 8px;
+  font-size: 18px; font-weight: 700; cursor: grab; pointer-events: auto; user-select: none;
+}
+.ptitle:active { cursor: grabbing; }
+.ptitle.folded { color: var(--text-secondary); }
+.ptitle .fold {
+  position: absolute; left: -22px; bottom: 10px; width: 18px; height: 18px; padding: 0;
+  font-size: 14px; line-height: 18px; text-align: center; border-radius: 4px;
+  background: transparent; color: var(--text-muted); opacity: 0; transition: opacity .15s;
+}
+.ptitle:hover .fold { opacity: 1; }
+.ptitle .fold:hover { background: var(--btn-bg); color: var(--text-primary); }
+#dropline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text-secondary); pointer-events: none; }
+#dropline[hidden] { display: none; }

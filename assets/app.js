@@ -19,20 +19,32 @@ const monthDate = m => m + "-15";
 const quarterEnd = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n, 0)).toISOString().slice(0, 10); };  // dette = encours fin de trimestre
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
-// Un panneau par graphique, de haut en bas ; n = suffixe des axes Plotly (x, x2, x3…)
+// Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
+// n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
 const PANELS = [
-  { title: "Spread 10 ans vs Allemagne (points de %)", codes: SPREAD_CODES,
+  { key: "spread", title: "Spread 10 ans vs Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
-  { title: "Taux 10 ans (%)", codes: ALL_CODES,
+  { key: "rate", title: "Taux 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
-  { title: "Dette publique (% du PIB)", codes: ALL_CODES,
+  { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP },
-  { title: "Déficit public (% du PIB)", codes: ALL_CODES, zero: true,
+  { key: "deficit", title: "Déficit public (% du PIB)", codes: ALL_CODES, zero: true,
     connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(quarterEnd), y: c => DATA.deficit.series[c],
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
-].map((panel, i) => ({ ...panel, n: i ? String(i + 1) : "" }));
-PANELS[0].zero = PANELS[1].zero = true;
+].map(panel => ({ ...panel, stamps: panel.x.map(Date.parse) }));
+const PANEL = Object.fromEntries(PANELS.map(p => [p.key, p]));
+
+// Ordre et repli mémorisés dans le navigateur
+state.order = PANELS.map(p => p.key);
+state.folded = new Set();
+try {
+  const saved = JSON.parse(localStorage.getItem("panels"));
+  if (saved.order.length === PANELS.length && saved.order.every(k => PANEL[k])) state.order = saved.order;
+  state.folded = new Set(saved.folded.filter(k => PANEL[k]));
+} catch {}
+const savePanels = () => { try { localStorage.setItem("panels", JSON.stringify({ order: state.order, folded: [...state.folded] })); } catch {} };
+let shown = [];   // panneaux dépliés, dans l'ordre d'affichage
 
 // ---- Construction des traces --------------------------------------------------
 function traces(panel, code) {
@@ -46,7 +58,7 @@ function traces(panel, code) {
   };
 }
 
-const buildTraces = () => PANELS.flatMap(panel => panel.codes.map(c => traces(panel, c)));
+const buildTraces = () => shown.flatMap(panel => panel.codes.map(c => traces(panel, c)));
 
 // ---- Mise en page ---------------------------------------------------------------
 const EVENTS = [
@@ -57,12 +69,22 @@ const EVENTS = [
   ["2022-07-21", "Hausse des taux BCE"],
 ];
 
-const chartTitle = (text, y, yshift) => ({
-  text: `<b>${text}</b>`, xref: "paper", yref: "paper", x: 0, y, yshift, xanchor: "left", yanchor: "bottom",
-  showarrow: false, font: { size: 18, color: css("--text-primary") },
-});
+// Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
+const TITLE_H = 44, AXIS_H = 40;
+function geometry() {
+  const plotH = Math.max(320, Math.round(innerHeight * 0.42));
+  let y = 0;
+  const blocks = state.order.map(key => {
+    const b = { key, top: y };
+    y += TITLE_H;
+    if (!state.folded.has(key)) { b.plotTop = y; b.plotBottom = y += plotH; y += AXIS_H; }
+    b.bottom = y;
+    return b;
+  });
+  return { blocks, height: y };
+}
 
-function baseLayout() {
+function baseLayout(geo) {
   const ink = css("--text-secondary"), grid = css("--grid");
   const axisCommon = {
     gridcolor: grid, linecolor: grid, tickfont: { color: ink }, zeroline: false,
@@ -72,33 +94,34 @@ function baseLayout() {
     line: { color: css("--zero"), width: 1, dash: "dot" }, layer: "below",
   });
   const shapes = [
-    ...PANELS.flatMap(p => EVENTS.map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
-    ...PANELS.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
+    ...shown.flatMap(p => EVENTS.map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
+    ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
-  const annotations = EVENTS.map(([d, t]) => ({
-    x: d, xref: "x", y: 1, yref: "paper", yanchor: "top", xanchor: "left", xshift: 3, text: t, showarrow: false,
+  // libellés des événements : premier graphique affiché seulement
+  const annotations = shown.length ? EVENTS.map(([d, t]) => ({
+    x: d, xref: "x", y: 1, yref: "y domain", yanchor: "top", xanchor: "left", xshift: 3, text: t, showarrow: false,
     font: { size: 11, color: css("--text-muted") },
-  }));
+  })) : [];
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
-  const GAP = 0.05, H = (1 - GAP * (PANELS.length - 1)) / PANELS.length;
+  const frac = px => 1 - px / geo.height;
   const axes = {};
-  PANELS.forEach((p, i) => {
-    const top = 1 - i * (H + GAP);
+  for (const p of shown) {
+    const b = geo.blocks.find(b => b.key === p.key);
     axes["xaxis" + p.n] = { ...axisCommon, domain: [0, 1], anchor: "y" + p.n, type: "date",
       rangeslider: { visible: false }, ...(p.n && { matches: "x" }) };
-    axes["yaxis" + p.n] = { ...yCommon, domain: [top - H, top] };
-    p.top = top;
-  });
+    axes["yaxis" + p.n] = { ...yCommon, domain: [frac(b.plotBottom), frac(b.plotTop)] };
+  }
+  if (!shown.length) axes.xaxis = axes.yaxis = { visible: false };   // tout est replié
   return {
-    uirevision: "keep",            // conserve zoom / déplacements entre deux changements de vue
+    height: geo.height,
     paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
     font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", color: css("--text-primary") },
     separators: ", ",
-    margin: { l: 16, r: 56, t: 40, b: 32 },
+    margin: { l: 16, r: 56, t: 0, b: 0 },
     hovermode: false,              // infobulle maison (voir « Survol »), plus fluide que celle de Plotly
     dragmode: "pan",
     ...axes,
-    shapes, annotations: [...annotations, ...PANELS.map(p => chartTitle(p.title, p.top, 4))],
+    shapes, annotations,
   };
 }
 
@@ -113,16 +136,23 @@ Plotly.register({ moduleType: "locale", name: "fr", dictionary: {}, format: {
 const chart = document.getElementById("chart");
 const config = { responsive: true, scrollZoom: false, displayModeBar: false, locale: "fr", doubleClick: false };
 
-let layout = baseLayout();
+// Reconstruit la figure (ordre, repli, thème) en conservant la fenêtre de temps et, en échelle manuelle, les échelles verticales
 function render() {
-  // conserve la fenêtre visible courante
-  const cur = chart.layout;
-  if (cur) {
-    for (const k of PANELS.flatMap(p => ["xaxis" + p.n, "yaxis" + p.n])) {
-      if (cur[k] && cur[k].range && !cur[k].autorange) layout[k].range = cur[k].range.slice();
-    }
+  const fl = chart._fullLayout;
+  const xRange = shown.length && fl?.xaxis?.range?.slice();
+  const yRanges = Object.fromEntries(shown.map(p => [p.key, fl?.["yaxis" + p.n]?.range?.slice()]));
+  shown = state.order.map(k => PANEL[k]).filter(p => !state.folded.has(p.key));
+  shown.forEach((p, i) => { p.n = i ? String(i + 1) : ""; });
+  const geo = geometry();
+  const layout = baseLayout(geo);
+  for (const p of shown) {
+    if (xRange) layout["xaxis" + p.n].range = xRange;
+    if (!state.autoY && yRanges[p.key]) layout["yaxis" + p.n].range = yRanges[p.key];
   }
-  return Plotly.react(chart, buildTraces(), layout, config);
+  chart.style.height = geo.height + "px";
+  paintTitles(geo);
+  paintVlines();
+  return Plotly.react(chart, buildTraces(), layout, config).then(() => state.autoY && shown.length && fitY());
 }
 
 // ---- Échelles ---------------------------------------------------------------------
@@ -135,9 +165,10 @@ function setAutoY(on) {
 
 // Ajuste l'échelle verticale de chaque graphique aux seules données visibles (séries affichées)
 function fitY() {
+  if (!shown.length) return;
   const [x0, x1] = xa().range.map(xa().r2l);
   const upd = {};
-  for (const [axis, yname] of PANELS.map(p => ["y" + p.n, "yaxis" + p.n])) {
+  for (const [axis, yname] of shown.map(p => ["y" + p.n, "yaxis" + p.n])) {
     let lo = Infinity, hi = -Infinity;
     for (const t of chart.data) {
       if (t.yaxis !== axis || t.visible === "legendonly") continue;
@@ -155,8 +186,9 @@ function fitY() {
 }
 
 function setX(rangeL) {  // bornes en millisecondes
+  if (!shown.length) return Promise.resolve();
   const r = rangeL.map(xa().l2r);
-  return Plotly.relayout(chart, Object.fromEntries(PANELS.map(p => [`xaxis${p.n}.range`, r])));
+  return Plotly.relayout(chart, Object.fromEntries(shown.map(p => [`xaxis${p.n}.range`, r])));
 }
 
 
@@ -165,7 +197,7 @@ const X_BAND = 34;
 function hitTest(ev) {
   const fl = chart._fullLayout, s = fl._size, r = chart.getBoundingClientRect();
   const px = ev.clientX - r.left, py = ev.clientY - r.top;
-  for (const yname of PANELS.map(p => "yaxis" + p.n)) {
+  for (const yname of shown.map(p => "yaxis" + p.n)) {
     const d = fl[yname].domain, top = s.t + (1 - d[1]) * s.h, bot = s.t + (1 - d[0]) * s.h;
     const inX = px >= s.l && px <= s.l + s.w;
     if (px > s.l + s.w && py >= top && py <= bot) return { kind: "y", axis: yname };
@@ -289,7 +321,6 @@ themeBtn.onclick = () => {
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem("theme", t); } catch {}
   paintThemeBtn();
-  layout = baseLayout();
   paintLegend();
   render();
 };
@@ -298,9 +329,12 @@ themeBtn.onclick = () => {
 // Suit la souris à chaque image (requestAnimationFrame) ; valeurs = point le plus proche de chaque courbe visible.
 const hover = document.getElementById("hover");
 const tip = document.getElementById("tip");
-const vlines = PANELS.map(() => hover.appendChild(Object.assign(document.createElement("div"), { className: "vline" })));
+let vlines = [];
+function paintVlines() {   // une ligne verticale par graphique déplié
+  vlines.forEach(el => el.remove());
+  vlines = shown.map(() => hover.appendChild(Object.assign(document.createElement("div"), { className: "vline" })));
+}
 const hline = hover.appendChild(Object.assign(document.createElement("div"), { className: "hline" }));   // courbe unique seulement
-const stamps = PANELS.map(p => p.x.map(Date.parse));
 const monthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
 
 function nearest(ts, t) {   // indice de la date la plus proche (ts trié)
@@ -314,15 +348,15 @@ function showHover(ev, hit) {
   const fl = chart._fullLayout, s = fl._size, r = chart.getBoundingClientRect();
   const px = ev.clientX - r.left, py = ev.clientY - r.top;
   const t = pxToL(px);
-  PANELS.forEach((p, i) => {
+  shown.forEach((p, i) => {
     const d = fl["yaxis" + p.n].domain;
     Object.assign(vlines[i].style, { left: px + "px", top: s.t + (1 - d[1]) * s.h + "px", height: (d[1] - d[0]) * s.h + "px" });
   });
-  const pi = PANELS.findIndex(p => "yaxis" + p.n === hit.axis), panel = PANELS[pi];
-  const i = nearest(stamps[pi], t);
+  const panel = shown.find(p => "yaxis" + p.n === hit.axis);
+  const i = nearest(panel.stamps, t);
   const rows = panel.codes.filter(c => !state.hidden.has(c))
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
-  tip.innerHTML = `<div class="date">${monthYear.format(stamps[pi][i])}</div>` + rows.map(({ c, v }) =>
+  tip.innerHTML = `<div class="date">${monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
     `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
   // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
   const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
@@ -347,6 +381,59 @@ chart.addEventListener("mousemove", ev => {
   });
 });
 chart.addEventListener("mouseleave", hideHover);
+
+// ---- Titres des graphiques : bouton −/+ (replier) et glisser-déposer (réordonner) ----------
+const titles = document.getElementById("titles");
+const dropLine = document.getElementById("dropline");
+function paintTitles(geo) {
+  titles.innerHTML = geo.blocks.map(b => {
+    const folded = state.folded.has(b.key);
+    return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
+      `<button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
+      `<span>${PANEL[b.key].title}</span></div>`;
+  }).join("");
+  titles.geo = geo;
+}
+titles.addEventListener("click", ev => {
+  const key = ev.target.closest(".fold") && ev.target.closest(".ptitle").dataset.key;
+  if (!key) return;
+  state.folded.has(key) ? state.folded.delete(key) : state.folded.add(key);
+  savePanels();
+  render();
+});
+
+// Position d'insertion = frontière de bloc la plus proche du curseur
+function dropIndex(ev) {
+  const y = ev.clientY - titles.getBoundingClientRect().top;
+  const bounds = [0, ...titles.geo.blocks.map(b => b.bottom)];
+  return bounds.reduce((best, b, i) => Math.abs(b - y) < Math.abs(bounds[best] - y) ? i : best, 0);
+}
+let dragKey = null;
+titles.addEventListener("dragstart", ev => {
+  dragKey = ev.target.closest(".ptitle")?.dataset.key;
+  ev.dataTransfer.effectAllowed = "move";
+  ev.dataTransfer.setData("text/plain", dragKey);
+  hideHover();
+});
+const stage = document.getElementById("stage");
+stage.addEventListener("dragover", ev => {
+  if (!dragKey) return;
+  ev.preventDefault();
+  const i = dropIndex(ev), bounds = [0, ...titles.geo.blocks.map(b => b.bottom)];
+  dropLine.hidden = false;
+  dropLine.style.top = bounds[i] + "px";
+});
+stage.addEventListener("drop", ev => {
+  if (!dragKey) return;
+  ev.preventDefault();
+  const i = dropIndex(ev), from = state.order.indexOf(dragKey);
+  const order = state.order.filter(k => k !== dragKey);
+  order.splice(i > from ? i - 1 : i, 0, dragKey);
+  state.order = order;
+  savePanels();
+  render();
+});
+document.addEventListener("dragend", () => { dragKey = null; dropLine.hidden = true; });
 
 paintLegend();
 render().then(() => { attachPlotlyEvents(); showDefault(); });
