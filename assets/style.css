@@ -95,3 +95,13 @@ button:hover { opacity: .75; }
 #dropline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text-secondary); pointer-events: none; }
 #dropline[hidden] { display: none; }
 .cover { position: absolute; left: 0; right: 0; background: var(--surface); pointer-events: none; }
+/* page budget (diagrammes de Sankey) */
+a.nav, select {
+  font: inherit; font-size: 13px; color: var(--text-primary); background: var(--btn-bg);
+  padding: 5px 10px; border: 0; border-radius: 6px; text-decoration: none; cursor: pointer;
+}
+a.nav:hover { opacity: .75; }
+#legend .sw.block { width: 12px; height: 12px; border-radius: 3px; }
+#legend .item { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 13px; }
+.sankey h2 { font-size: 18px; font-weight: 700; margin: 16px 0 4px; }
+.sankey h2 span { font-size: 14px; font-weight: 400; color: var(--text-secondary); margin-left: 8px; }

@@ -17,7 +17,12 @@ Finances publiques (Eurostat, administrations publiques S13) :
     années sans données trimestrielles (IE, DE avant 2002) reprennent le
     chiffre annuel (gov_10dd_edpt1).
 
-Écrit data/taux10y.js, chargé par index.html (fonctionne en ouvrant le fichier
+Budget de la France (gov_10a_main, annuel, millions d'euros) : recettes et
+dépenses de l'État et des organismes centraux (S1311), des collectivités locales
+(S1313) et de la sécurité sociale (S1314), avec les transferts entre eux ; sert
+aux diagrammes de Sankey de budget.html (data/budget.js).
+
+Écrit data/data.js, chargé par index.html (fonctionne en ouvrant le fichier
 directement comme sur GitHub Pages). Aucune dépendance : uniquement la
 bibliothèque standard Python.
 """
@@ -54,6 +59,40 @@ TV_URL = "https://scanner.tradingview.com/global/scan"
 EUROSTAT_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}"
 EUROSTAT_GEO = {"GR": "EL"}  # Eurostat code la Grèce « EL »
 UA = {"User-Agent": "Mozilla/5.0"}
+OUTPUT_BUDGET = ROOT / "data" / "budget.js"
+
+# Budget de la France : sous-secteurs des administrations publiques (ordre = ordre des couleurs)
+SUBSECTORS = {"S1311": "État", "S1314": "Sécurité sociale", "S1313": "Collectivités locales"}
+BUDGET_ITEMS = [
+    "TR", "TE", "P11_P12_P131", "D2REC", "D211REC", "D5REC", "D51A_C1REC", "D51B_C2REC", "D61REC", "D91REC",
+    "P2", "P5", "NP", "D1PAY", "D3PAY", "D41PAY", "D62PAY", "D62PAY_GF1002", "D62PAY_GF1003", "D62PAY_GF1005",
+    "D632PAY", "D76PAY",
+] + [f"{t}PAY_{s}" for t in ("D4", "D7", "D9") for s in SUBSECTORS]  # transferts entre sous-secteurs
+# Postes du diagramme : (libellé, formule = liste de (signe, opération)). Le dernier poste de chaque
+# liste est le solde (total − postes nommés − transferts internes), calculé à part.
+REVENUES = [
+    ("TVA", [(1, "D211REC")]),
+    ("Autres impôts sur la production", [(1, "D2REC"), (-1, "D211REC")]),
+    ("Impôts sur le revenu (IR, CSG)", [(1, "D51A_C1REC")]),
+    ("Impôt sur les sociétés", [(1, "D51B_C2REC")]),
+    ("Impôts sur le patrimoine, successions", [(1, "D5REC"), (-1, "D51A_C1REC"), (-1, "D51B_C2REC"), (1, "D91REC")]),
+    ("Cotisations sociales", [(1, "D61REC")]),
+    ("Ventes et recettes de services", [(1, "P11_P12_P131")]),
+    ("Autres recettes", None),
+]
+EXPENSES = [
+    ("Rémunération des agents", [(1, "D1PAY")]),
+    ("Achats courants", [(1, "P2")]),
+    ("Investissement", [(1, "P5"), (1, "NP")]),
+    ("Retraites", [(1, "D62PAY_GF1002"), (1, "D62PAY_GF1003")]),
+    ("Chômage", [(1, "D62PAY_GF1005")]),
+    ("Autres prestations en espèces", [(1, "D62PAY"), (-1, "D62PAY_GF1002"), (-1, "D62PAY_GF1003"), (-1, "D62PAY_GF1005")]),
+    ("Soins et prestations en nature", [(1, "D632PAY")]),
+    ("Intérêts de la dette", [(1, "D41PAY")]),
+    ("Subventions", [(1, "D3PAY")]),
+    ("Contribution au budget de l'UE", [(1, "D76PAY")]),
+    ("Autres transferts et dépenses", None),
+]
 
 
 def http(url, data=None, headers=None, attempts=3, timeout=60):
@@ -118,6 +157,24 @@ def fetch_eurostat(dataset, start, **filters):
     return out
 
 
+def fetch_budget():
+    """{secteur: {opération: {'AAAA': valeur}}} pour la France, en millions d'euros."""
+    query = urllib.parse.urlencode(
+        [("format", "JSON"), ("geo", "FR"), ("unit", "MIO_EUR"), ("sinceTimePeriod", "1995")]
+        + [("sector", s) for s in ("S13", *SUBSECTORS)] + [("na_item", i) for i in BUDGET_ITEMS]
+    )
+    d = json.loads(http(EUROSTAT_URL.format(dataset="gov_10a_main") + "?" + query))
+    dims = {k: {i: c for c, i in d["dimension"][k]["category"]["index"].items()} for k in d["id"]}
+    out = {}
+    for k, v in d["value"].items():
+        coords, k = {}, int(k)
+        for dim, size in reversed(list(zip(d["id"], d["size"]))):
+            k, coords[dim] = divmod(k, size)
+        out.setdefault(dims["sector"][coords["sector"]], {}).setdefault(dims["na_item"][coords["na_item"]], {})[
+            dims["time"][coords["time"]]] = v
+    return out
+
+
 def download():
     data = {"ecb": {}, "daily": {}, "live": {}, "fetched": datetime.now().strftime("%d/%m/%Y %H:%M")}
     for code, name in COUNTRIES.items():
@@ -135,6 +192,9 @@ def download():
     data["balance"] = fetch_eurostat("gov_10dd_edpt1", "2000", na_item="B9", **gov)
     data["balance_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q2", na_item="B9", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1999-Q2", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
+    print("  Eurostat : budget de la France…", flush=True)
+    data["budget"] = fetch_budget()
+    data["gdp_fr"] = fetch_eurostat("nama_10_gdp", "1995", na_item="B1GQ", unit="CP_MEUR")["FR"]
     print("  TradingView : taux du jour…", flush=True)
     try:
         data["live"] = fetch_tradingview_live()
@@ -207,6 +267,46 @@ def rolling_deficit(data):
     return out
 
 
+def budget(data):
+    """Par année : pour chaque sous-secteur, recettes et dépenses propres par poste (hors transferts
+    entre administrations), transferts versés aux autres sous-secteurs et solde, en milliards d'euros.
+    Retraites et chômage ne sont pas encore détaillés pour la dernière année : leurs postes sont alors
+    vides et tout va dans « Autres prestations en espèces »."""
+    raw = data.get("budget", {})
+    get = lambda s, i, y: raw.get(s, {}).get(i, {}).get(y)
+    years = sorted(y for y in raw.get("S13", {}).get("TR", {})
+                   if all(get(s, i, y) is not None for s in SUBSECTORS for i in ("TR", "TE")))
+    out = {}
+    for y in years:
+        val = lambda s, i: get(s, i, y) or 0
+        calc = lambda s, f: sum(sign * val(s, i) for sign, i in f)
+        # transferts courants, en capital et revenus de la propriété versés de p à r
+        to = {p: {r: sum(val(p, f"{t}PAY_{r}") for t in ("D4", "D7", "D9")) for r in SUBSECTORS if r != p}
+              for p in SUBSECTORS}
+        year = {}
+        for s in SUBSECTORS:
+            received = sum(to[p][s] for p in SUBSECTORS if p != s)
+            paid = sum(to[s].values())
+            rev = [calc(s, f) for _, f in REVENUES[:-1]]
+            exp = [calc(s, f) for _, f in EXPENSES[:-1]]
+            rev.append(val(s, "TR") - sum(rev) - received)
+            exp.append(val(s, "TE") - sum(exp) - paid)
+            if min(rev + exp) < -5000:   # petits résidus négatifs (asymétries payeur / receveur) : ignorés à l'affichage
+                print(f"    attention {y} {s} : poste négatif ({min(rev + exp):.0f} M€)")
+            year[s] = {"rev": [round(v / 1000, 2) for v in rev], "exp": [round(v / 1000, 2) for v in exp],
+                       "to": {r: round(v / 1000, 2) for r, v in to[s].items()},
+                       "balance": round((val(s, "TR") - val(s, "TE")) / 1000, 2)}
+        own = sum(sum(year[s]["rev"]) for s in SUBSECTORS) * 1000
+        if abs(own - val("S13", "TR")) > 1000:   # recettes consolidées : à 1 Md€ près
+            print(f"    attention {y} : recettes propres {own:.0f} ≠ recettes consolidées {val('S13', 'TR'):.0f} M€")
+        out[y] = year
+    gdp = data.get("gdp_fr", {})
+    return {"years": years, "sectors": SUBSECTORS, "revenues": [r for r, _ in REVENUES],
+            "expenses": [e for e, _ in EXPENSES], "data": out,
+            "gdp": {y: round(gdp[y] / 1000, 1) for y in years if y in gdp},
+            "detailed": [y for y in years if all(get(s, "D62PAY_GF1002", y) is not None for s in SUBSECTORS)]}
+
+
 def quarters_apart(a, b):
     return (int(b[:4]) - int(a[:4])) * 4 + int(b[-1]) - int(a[-1])
 
@@ -230,12 +330,20 @@ def main():
         f"window.DATA = {json.dumps(payload, ensure_ascii=False)};\n",
         encoding="utf-8",
     )
+    budget_payload = budget(data)
+    OUTPUT_BUDGET.write_text(
+        "// Généré par update.py — ne pas modifier à la main.\n"
+        f"window.BUDGET = {json.dumps(budget_payload, ensure_ascii=False)};\n",
+        encoding="utf-8",
+    )
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
     for key in ("debt", "deficit"):
         if periods := payload[key]["periods"]:
             print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
+    if years := budget_payload["years"]:
+        print(f"Eurostat budget de la France : {years[0]} → {years[-1]}  →  {OUTPUT_BUDGET.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

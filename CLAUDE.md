@@ -2,12 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Static site (French UI) charting, since 2000, for GR/IT/ES/PT/IE/FR/DE: 10-year bond spreads vs Germany and 10-year rates (monthly), public debt (% GDP, quarterly) and public deficit (% GDP, rolling 4 quarters). No build step, no dependencies, no tests. The user communicates in French; keep UI text, comments and commit messages in French.
+Static site (French UI) charting, since 2000, for GR/IT/ES/PT/IE/FR/DE: 10-year bond spreads vs Germany and 10-year rates (monthly), public debt (% GDP, quarterly) and public deficit (% GDP, rolling 4 quarters), plus a second page (`budget.html`) with Sankey diagrams of French public revenue and spending. No build step, no dependencies, no tests. The user communicates in French; keep UI text, comments and commit messages in French.
 
 ## Commands
 
 - View the site: open `index.html` directly in a browser (`file://`). No server needed.
-- Refresh data: `python3 update.py` (stdlib only). Rewrites `data/data.js` and `data/cache.json`.
+- Refresh data: `python3 update.py` (stdlib only). Rewrites `data/data.js`, `data/budget.js` and `data/cache.json`.
 - Headless screenshot to check rendering (Firefox is a snap here, so the profile must live under `~/snap/firefox/common/` and the output path must not be a dotfile):
   `firefox --headless --no-remote --profile ~/snap/firefox/common/<prof> --window-size=1400,900 --screenshot "$PWD/shot.png" "file://$PWD/index.html"`
 
@@ -22,6 +22,7 @@ Static site (French UI) charting, since 2000, for GR/IT/ES/PT/IE/FR/DE: 10-year 
   - Hover is custom (`hovermode: false`): an HTML overlay (`#hover` in `#stage`) draws a dashed vertical line across every panel, a dashed horizontal line when the hovered panel shows a single series, and a tooltip for the hovered panel, updated once per animation frame. It shows the nearest point of each visible series, sorted by value. Plotly spikes and hover labels are off.
   - Theming: CSS custom properties in `assets/style.css`, with dark mode via `prefers-color-scheme` overridden by `:root[data-theme]`. The choice is persisted in `localStorage`. Plotly colors are read from CSS vars at layout build time, so a theme change must rebuild `baseLayout()` and re-render.
   - Series colors map to `--s1..--s7` in the order GR, IT, ES, PT, IE, FR, DE (`COLOR()` in `app.js`, matching `COUNTRIES` order in `update.py`).
+- **Budget page (`budget.html`, `assets/budget.js`)**: `budget()` in `update.py` reads `gov_10a_main` (France, annual, MIO_EUR) for S1311 (État + ODAC), S1314 (sécurité sociale), S1313 (collectivités). Per sector it computes own revenue/expense by item (`REVENUES`/`EXPENSES`; the last item of each is the residual TE/TR − named items − intra-government transfers) and the transfer matrix from the payer side (`D4/D7/D9PAY_S13xx`), in Md€ → `data/budget.js` (`window.BUDGET`). Small negative residuals (payer/receiver asymmetries) are skipped when drawing. Pension/unemployment detail (`D62PAY_GF100x`) lags a year: the default year is the last of `detailed`. Two Plotly sankeys: consolidated (revenues → one "Administrations publiques" node → expenses, link colour = collecting/spending sector, transfers eliminated) and unconsolidated (one block of nodes per sector in its colour, with "Reçu de…"/"Versé à…" transfer nodes in the counterpart's colour). Node positions are set explicitly (`arrangement: "fixed"`) to keep the order. Sector colours: État `--s1`, Sécu `--s3`, collectivités `--s6`, déficit `--s2`.
 - **Deployment**: `.github/workflows/update.yml` runs `update.py` on weekdays at 18:00 UTC (or manually), commits `data/`, then deploys the repo root to GitHub Pages (Pages source must be "GitHub Actions"). Pushes to `main` only redeploy. Never push unless the user asks.
 
 ## UI preferences

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget de la France</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/plotly.min.js"></script>
+<script src="data/budget.js"></script>
+</head>
+<body>
+<header>
+  <div class="controls">
+    <h1>Recettes et dépenses publiques de la France</h1>
+    <select id="year" title="Année"></select>
+    <a class="nav" href="index.html">Taux et dette</a>
+    <button id="theme" title="Mode clair / sombre"></button>
+  </div>
+  <nav id="legend"></nav>
+</header>
+<section class="sankey">
+  <h2>Comptes consolidés <span id="sum-cons"></span></h2>
+  <div id="cons"></div>
+</section>
+<section class="sankey">
+  <h2>Comptes non consolidés <span id="sum-raw"></span></h2>
+  <div id="raw"></div>
+</section>
+<script src="assets/budget.js"></script>
+</body>
+</html>
