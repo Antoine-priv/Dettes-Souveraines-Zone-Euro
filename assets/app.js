@@ -5,7 +5,8 @@ const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).
 const COLOR = c => css("--s" + (["GR","IT","ES","PT","IE","FR","DE"].indexOf(c) + 1));
 const fmt = v => v == null ? "–" : v.toFixed(2).replace(".", ",");
 
-const state = { autoY: true, hidden: new Set() };   // hidden : pays masqués via la légende
+// hidden : pays masqués via la légende ; au chargement, seules la France et l'Allemagne sont affichées
+const state = { autoY: true, hidden: new Set(["GR", "IT", "ES", "PT", "IE"]) };
 
 // ---- Préparation des données ------------------------------------------------
 const months = DATA.months;
