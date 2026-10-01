@@ -53,8 +53,8 @@ const buildTraces = () => PANELS.flatMap(panel => panel.codes.map(c => traces(pa
 const EVENTS = [
   ["2008-09-15", "Lehman"],
   ["2010-05-02", "1er plan grec"],
-  ["2012-07-26", "« Whatever it takes »"],
-  ["2020-03-18", "PEPP"],
+  ["2012-07-26", "Whatever it takes"],
+  ["2020-03-18", "Covid"],
   ["2022-07-21", "Hausse des taux BCE"],
 ];
 
