@@ -17,6 +17,14 @@ for (const c of SPREAD_CODES) {
 }
 const monthDate = m => m + "-15";
 const quarterEnd = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n, 0)).toISOString().slice(0, 10); };  // dette = encours fin de trimestre
+// Croissance nominale (croissance + inflation) et taux moyen de la dette, alignés sur les trimestres du PIB
+const growth = DATA.growth.series;
+const interest = Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods.map(q => {
+  const i = DATA.interest.periods.indexOf(q);
+  return i < 0 ? null : DATA.interest.series[c][i];
+})]));
+const gap = Object.fromEntries(ALL_CODES.map(c => [c, interest[c].map((r, i) => r == null || growth[c][i] == null ? null : +(r - growth[c][i]).toFixed(2))]));
+const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
@@ -32,6 +40,12 @@ const PANELS = [
     connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(quarterEnd), y: c => DATA.deficit.series[c],
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
+  { key: "growth", title: "Croissance + inflation (trait plein) et taux moyen de la dette (pointillés), %", codes: ALL_CODES, zero: true,
+    x: DATA.growth.periods.map(quarterEnd), y: c => growth[c], dashed: c => interest[c],
+    row: (c, i) => `croissance + inflation <b>${pct(growth[c][i])}</b> · taux <b>${pct(interest[c][i])}</b>` },
+  { key: "gap", title: "Taux moyen de la dette − (croissance + inflation), points de %", codes: ALL_CODES, zero: true,
+    x: DATA.growth.periods.map(quarterEnd), y: c => gap[c],
+    text: v => `${v > 0 ? "+" : ""}${fmt(v)} pt (${v > 0 ? "boule de neige" : "la dette fond"})` },
 ].map(panel => ({ ...panel, stamps: panel.x.map(Date.parse) }));
 const PANEL = Object.fromEntries(PANELS.map(p => [p.key, p]));
 
@@ -40,25 +54,26 @@ state.order = PANELS.map(p => p.key);
 state.folded = new Set();
 try {
   const saved = JSON.parse(localStorage.getItem("panels"));
-  if (saved.order.length === PANELS.length && saved.order.every(k => PANEL[k])) state.order = saved.order;
+  // panneaux ajoutés depuis la sauvegarde : à la fin
+  if (saved.order.every(k => PANEL[k])) state.order = [...saved.order, ...state.order.filter(k => !saved.order.includes(k))];
   state.folded = new Set(saved.folded.filter(k => PANEL[k]));
 } catch {}
 const savePanels = () => { try { localStorage.setItem("panels", JSON.stringify({ order: state.order, folded: [...state.folded] })); } catch {} };
 let shown = [];   // panneaux dépliés, dans l'ordre d'affichage
 
 // ---- Construction des traces --------------------------------------------------
-function traces(panel, code) {
-  const label = DATA.names[code];
-  const vals = panel.y(code);
+function traces(panel, code, vals = panel.y(code), dash = "solid") {
   return {
-    name: label, legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
+    name: DATA.names[code], legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
     showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
     type: "scatter", mode: "lines", x: panel.x, y: vals,
-    line: { color: COLOR(code), width: 2 }, connectgaps: !!panel.connectgaps,
+    line: { color: COLOR(code), width: 2, dash }, connectgaps: !!panel.connectgaps,
   };
 }
 
-const buildTraces = () => shown.flatMap(panel => panel.codes.map(c => traces(panel, c)));
+// panneau à deux courbes par pays (dashed) : trait plein + pointillés de la même couleur
+const buildTraces = () => shown.flatMap(panel => panel.codes.flatMap(c =>
+  panel.dashed ? [traces(panel, c), traces(panel, c, panel.dashed(c), "dot")] : [traces(panel, c)]));
 
 // ---- Mise en page ---------------------------------------------------------------
 const EVENTS = [
@@ -357,9 +372,9 @@ function showHover(ev, hit) {
   const rows = panel.codes.filter(c => !state.hidden.has(c))
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
   tip.innerHTML = `<div class="date">${monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
-    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
+    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} ${panel.row ? panel.row(c, i) : `<b>${panel.text(v)}</b>`}</div>`).join("");
   // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
-  const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
+  const ya = fl[hit.axis], y = rows.length === 1 && !panel.dashed ? ya._offset + ya.l2p(rows[0].v) : NaN;
   const d = ya.domain, inside = y >= s.t + (1 - d[1]) * s.h && y <= s.t + (1 - d[0]) * s.h;
   hline.hidden = !inside;
   if (inside) Object.assign(hline.style, { top: y + "px", left: s.l + "px", width: s.w + "px" });

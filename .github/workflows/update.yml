@@ -50,6 +50,8 @@ jobs:
         with:
           ref: main   # inclut le commit de données fait juste avant
       - uses: actions/configure-pages@v5
+      - name: Masquer la page budget (pour l'instant)
+        run: rm budget.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .

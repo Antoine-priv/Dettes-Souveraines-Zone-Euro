@@ -10,6 +10,8 @@ Taux 10 ans, de la source la plus officielle à la plus récente :
 
 Finances publiques (Eurostat, administrations publiques S13) :
   - dette brute au sens de Maastricht en % du PIB, trimestrielle (gov_10q_ggdebt) ;
+  - croissance nominale du PIB (croissance + inflation) et taux apparent de la dette
+    (intérêts versés / dette un an plus tôt), sur 4 trimestres glissants ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
     saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
@@ -212,7 +214,9 @@ def download():
     data["debt"] = fetch_eurostat("gov_10q_ggdebt", "2000-Q1", na_item="GD", **gov)
     data["balance"] = fetch_eurostat("gov_10dd_edpt1", "2000", na_item="B9", **gov)
     data["balance_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q2", na_item="B9", sector="S13", unit="MIO_EUR", s_adj="NSA")
-    data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1999-Q2", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
+    data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1998-Q1", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
+    data["interest_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q1", na_item="D41PAY", sector="S13", unit="MIO_EUR", s_adj="NSA")
+    data["debt_eur"] = fetch_eurostat("gov_10q_ggdebt", "1999-Q1", na_item="GD", sector="S13", unit="MIO_EUR")
     print("  Eurostat : budget de la France…", flush=True)
     data["budget"] = fetch_france("gov_10a_main", BUDGET_ITEMS)
     data["cofog"] = fetch_france("gov_10a_exp", COFOG_ITEMS, by_cofog=True)
@@ -289,6 +293,37 @@ def rolling_deficit(data):
     return out
 
 
+def sum4(series, q):
+    """Somme des 4 trimestres finissant à q, ou None s'il en manque un."""
+    y, n = int(q[:4]), int(q[-1])
+    qs = [f"{y - (n - k <= 0)}-Q{(n - k - 1) % 4 + 1}" for k in range(4)]
+    return sum(series[x] for x in qs) if all(x in series for x in qs) else None
+
+
+def year_before(q):
+    return f"{int(q[:4]) - 1}{q[4:]}"
+
+
+def growth_vs_rate(data):
+    """Croissance nominale du PIB (croissance réelle + inflation) et taux apparent de la dette, en %,
+    sur 4 trimestres glissants : {'growth': {'XX': {q: %}}, 'rate': {'XX': {q: %}}}.
+    Taux apparent = intérêts versés sur 4 trimestres / dette un an plus tôt : c'est le coût moyen de
+    toute la dette, qui suit le taux de marché avec retard, au rythme du renouvellement des emprunts."""
+    growth, rate = {}, {}
+    for c in COUNTRIES:
+        gdp, d41, debt = (data.get(k, {}).get(c, {}) for k in ("gdp_q", "interest_q", "debt_eur"))
+        growth[c], rate[c] = {}, {}
+        for q in gdp:
+            now, before = sum4(gdp, q), sum4(gdp, year_before(q))
+            if q >= "2000-Q1" and now and before:
+                growth[c][q] = 100 * (now / before - 1)
+        for q in d41:
+            paid, owed = sum4(d41, q), debt.get(year_before(q))
+            if q >= "2000-Q1" and paid is not None and owed:
+                rate[c][q] = 100 * paid / owed
+    return {"growth": growth, "rate": rate}
+
+
 def budget(data):
     """Par année : pour chaque sous-secteur, recettes propres par poste et dépenses propres par fonction
     (hors transferts entre administrations), cotisations retraite imputées de chaque fonction,
@@ -348,6 +383,8 @@ def main():
         # Les deux tableaux suivants : listes de périodes + valeurs alignées par pays
         "debt": public_finances(data.get("debt", {})),
         "deficit": public_finances(rolling_deficit(data)),
+        "growth": public_finances((gr := growth_vs_rate(data))["growth"]),
+        "interest": public_finances(gr["rate"]),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
@@ -365,7 +402,7 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit"):
+    for key in ("debt", "deficit", "growth", "interest"):
         if periods := payload[key]["periods"]:
             print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:
