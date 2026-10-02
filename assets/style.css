@@ -92,6 +92,22 @@ button:hover { opacity: .75; }
 }
 .ptitle:hover .fold { opacity: 1; }
 .ptitle .fold:hover { background: var(--btn-bg); color: var(--text-primary); }
+/* libellés des événements : coupés s'ils touchent le suivant, explication au survol */
+#events { position: absolute; inset: 0; pointer-events: none; }
+.evlabel {
+  position: absolute; font-size: 11px; line-height: 14px; color: var(--text-muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; pointer-events: auto; cursor: help;
+}
+.evlabel:hover { color: var(--text-primary); }
+#evtip {
+  position: absolute; z-index: 5; max-width: 360px; pointer-events: none;
+  background: var(--surface); border: 1px solid var(--grid); border-radius: 6px;
+  padding: 8px 10px; font-size: 13px; line-height: 1.5; box-shadow: 0 2px 8px rgb(0 0 0 / .12);
+}
+#evtip .date { font-weight: 600; margin-bottom: 2px; }
+#evtip p { margin: 6px 0 0; }
+#evtip b { font-weight: 600; }
+#evtip[hidden] { display: none; }
 .pick { position: absolute; right: 56px; pointer-events: auto; }
 #tip .sw.dash { background: none !important; border-top: 2px dotted var(--text-primary); height: 0; }
 #dropline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text-secondary); pointer-events: none; }

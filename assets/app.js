@@ -100,20 +100,37 @@ function singleTraces(panel) {
 const buildTraces = () => shown.flatMap(panel => panel.single ? singleTraces(panel) : panel.codes.map(c => traces(panel, c)));
 
 // ---- Mise en page ---------------------------------------------------------------
+// [date, libellé, explication affichée au survol du libellé : effet sur les graphiques et raisons]
 const EVENTS = [
-  ["2008-09-15", "Lehman"],
-  ["2010-05-02", "1er plan grec"],
-  ["2012-07-26", "Whatever it takes"],
-  ["2020-03-18", "Covid"],
-  ["2022-07-21", "Hausse des taux BCE"],
+  ["2008-09-15", "Lehman", "Faillite de la banque Lehman Brothers : la crise financière américaine devient mondiale. " +
+    "Effet : récession en 2009 (croissance négative), déficits qui se creusent et dette qui bondit partout ; " +
+    "les investisseurs se réfugient sur la dette allemande et les spreads commencent à s'écarter."],
+  ["2010-05-02", "1er plan grec", "Premier prêt de l'Union européenne et du FMI à la Grèce (110 Md€), qui avait caché l'ampleur de son déficit. " +
+    "Effet : les marchés doutent de la solvabilité des pays fragiles ; les spreads de la Grèce, puis de l'Irlande, du Portugal, " +
+    "de l'Espagne et de l'Italie s'envolent jusqu'en 2012."],
+  ["2012-07-26", "Whatever it takes", "Mario Draghi promet que la BCE fera « tout ce qu'il faudra » pour sauver l'euro (rachats illimités de dette " +
+    "des pays en difficulté, programme OMT). Effet : sans même être utilisée, la promesse suffit ; les spreads refluent et les taux baissent pendant des années."],
+  ["2020-03-18", "Covid", "Confinements et arrêt d'une partie de l'économie. Effet : récession de 2020, déficits records pour soutenir " +
+    "entreprises et salariés, bond de la dette ; la BCE rachète massivement de la dette publique (PEPP), ce qui maintient les taux bas. Rebond en 2021."],
+  ["2022-07-21", "Hausse des taux BCE", "Face à une inflation proche de 10 %, la BCE relève ses taux pour la première fois depuis 2011 " +
+    "(de −0,5 % à 4 % en un an). Effet : les taux 10 ans montent ; le taux moyen de la dette ne suit que lentement, " +
+    "au fil des renouvellements, alors que l'inflation gonfle le PIB nominal : la dette fond temporairement."],
 ];
-// Événements historiques du panneau à un seul pays (selon le pays choisi), libellés sur ce panneau ;
-// 3e valeur = ligne du libellé (décalé vers le bas pour ne pas chevaucher le précédent)
+// Événements historiques du panneau à un seul pays (selon le pays choisi), libellés sur ce panneau
 const HISTORY = c => [
-  ...(c === "FR" ? [["1945-06-01", "Début des Trente Glorieuses", 0]] : []),
-  ["1973-10-16", c === "FR" ? "1er choc pétrolier, fin des Trente Glorieuses" : "1er choc pétrolier", 0],
-  ["1979-01-08", "2e choc pétrolier", 1],
-  ...(c === "FR" ? [["1983-03-25", "Tournant de la rigueur", 2]] : []),
+  ...(c === "FR" ? [["1945-06-01", "Début des Trente Glorieuses", "Reconstruction puis modernisation de la France, jusqu'au choc pétrolier de 1973. " +
+    "Effet : forte croissance réelle (aire verte, environ 5 % par an) et inflation soutenue (aire orange), bien au-dessus d'un taux moyen " +
+    "de la dette bas (taux encadrés par l'État) : la dette héritée de la guerre fond."]] : []),
+  ["1973-10-16", "1er choc pétrolier", "L'OPEP quadruple le prix du pétrole. Effet : la croissance réelle (aire verte) se réduit, " +
+    "jusqu'à devenir négative en 1975, mais l'inflation (aire orange) dépasse 10 % : le total reste élevé, c'est la stagflation. " +
+    "Elle fait encore fondre la dette, mais met fin aux Trente Glorieuses (chômage de masse)."],
+  ["1979-01-08", "2e choc pétrolier", "Révolution iranienne : le prix du pétrole double à nouveau. Effet : inflation vers 12 % (aire orange), " +
+    "croissance réelle presque nulle (aire verte très fine). Pour casser l'inflation, la Fed (Volcker) relève fortement ses taux, suivie " +
+    "par l'Europe : le taux moyen de la dette (pointillés) monte en 1981."],
+  ...(c === "FR" ? [["1983-03-25", "Tournant de la rigueur", "Après la relance de 1981 et trois dévaluations, le gouvernement choisit de rester " +
+    "dans le système monétaire européen : rigueur budgétaire, fin de l'indexation des salaires sur les prix, franc arrimé au mark. " +
+    "Effet : l'inflation (aire orange) tombe de 12 % à moins de 3 % en 1987, alors que le taux moyen de la dette reste vers 9 % : " +
+    "les courbes se croisent et la dette fait boule de neige jusqu'aux années 1990."]] : []),
 ];
 
 // Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
@@ -145,15 +162,6 @@ function baseLayout(geo) {
     ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
     ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
-  // libellés des événements : premier graphique affiché seulement
-  const label = (d, t, n, row = 0) => ({
-    x: d, xref: "x" + n, y: 1, yref: `y${n} domain`, yanchor: "top", xanchor: "left", xshift: 3, yshift: -15 * row, text: t, showarrow: false,
-    font: { size: 11, color: css("--text-muted") },
-  });
-  const annotations = [
-    ...(shown.length ? EVENTS.map(([d, t]) => label(d, t, "")) : []),
-    ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d, t, row]) => label(d, t, p.n, row))),
-  ];
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
   const frac = px => 1 - px / geo.height;
   const axes = {};
@@ -173,7 +181,7 @@ function baseLayout(geo) {
     hovermode: false,              // infobulle maison (voir « Survol »), plus fluide que celle de Plotly
     dragmode: "pan",
     ...axes,
-    shapes, annotations,
+    shapes,   // libellés des événements : HTML (voir paintEvents)
   };
 }
 
@@ -333,7 +341,45 @@ function attachPlotlyEvents() {
     if (state.autoY && Object.keys(ev).some(k => k.startsWith("xaxis"))) fitY();
   });
   chart.on("plotly_restyle", () => state.autoY && fitY());   // pays masqué / affiché
+  chart.on("plotly_afterplot", () => paintEvents());
+  chart.on("plotly_relayouting", ev => {   // pendant un déplacement à la souris : bornes en cours
+    const r = [ev["xaxis.range[0]"], ev["xaxis.range[1]"]];
+    if (r[0] != null) paintEvents(r.map(xa().r2l));
+  });
 }
+
+// ---- Libellés des événements (HTML) ------------------------------------------------
+// Sur une seule ligne en haut du tracé ; un libellé trop proche du suivant est coupé (…).
+// Premier graphique affiché : événements récents ; panneau à un seul pays : événements historiques aussi.
+const evLayer = document.getElementById("events");
+const evTip = document.getElementById("evtip");
+function paintEvents(range) {
+  const fl = chart._fullLayout, s = fl._size;
+  const [r0, r1] = range || xa().range.map(xa().r2l);
+  const toPx = d => s.l + (Date.parse(d) - r0) / (r1 - r0) * s.w;
+  const geo = titles.geo, html = [];
+  shown.forEach((p, k) => {
+    const list = [...(k === 0 ? EVENTS : []), ...(p.single ? HISTORY(state.pick) : [])]
+      .map(e => ({ e, x: toPx(e[0]) })).filter(o => o.x >= s.l && o.x < s.l + s.w).sort((a, b) => a.x - b.x);
+    const top = geo.blocks.find(b => b.key === p.key).plotTop + 2;
+    list.forEach((o, j) => {
+      const width = (j + 1 < list.length ? list[j + 1].x - 6 : s.l + s.w) - o.x - 3;
+      if (width > 14) html.push(`<div class="evlabel" data-d="${o.e[0]}" style="left:${o.x + 3}px;top:${top}px;max-width:${width}px">${o.e[1]}</div>`);
+    });
+  });
+  evLayer.innerHTML = html.join("");
+}
+evLayer.addEventListener("mouseover", ev => {
+  const el = ev.target.closest(".evlabel");
+  if (!el) return;
+  const e = [...EVENTS, ...HISTORY(state.pick)].find(e => e[0] === el.dataset.d);
+  hideHover();
+  evTip.innerHTML = `<div class="date">${e[1]}</div>${e[2].replace(" Effet : ", "<p><b>Effet :</b> ")}`;
+  evTip.hidden = false;
+  const left = Math.min(el.offsetLeft, stage.clientWidth - evTip.offsetWidth - 8);
+  Object.assign(evTip.style, { left: Math.max(0, left) + "px", top: el.offsetTop + el.offsetHeight + 4 + "px" });
+});
+evLayer.addEventListener("mouseout", ev => { if (ev.target.closest(".evlabel")) evTip.hidden = true; });
 
 // ---- Contrôles --------------------------------------------------------------------
 document.getElementById("autoY").onclick = () => setAutoY(true);
@@ -415,6 +461,14 @@ function showHover(ev, hit) {
   });
   const panel = shown.find(p => "yaxis" + p.n === hit.axis);
   const i = nearest(panel.stamps, t);
+  // au-delà des données (ex. avant 1950) : ligne verticale seule, pas d'infobulle figée sur le premier point
+  const ts = panel.stamps, n = ts.length;
+  if (t < ts[0] - (ts[1] - ts[0]) / 2 || t > ts[n - 1] + (ts[n - 1] - ts[n - 2]) / 2) {
+    tip.hidden = hline.hidden = true;
+    hover.hidden = false;
+    return;
+  }
+  tip.hidden = false;
   if (panel.single) {
     tip.innerHTML = `<div class="date">${panel.date(i)} · ${DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
     hline.hidden = true;
