@@ -11,7 +11,8 @@ Taux 10 ans, de la source la plus officielle à la plus récente :
 Finances publiques (Eurostat, administrations publiques S13) :
   - dette brute au sens de Maastricht en % du PIB, trimestrielle (gov_10q_ggdebt) ;
   - croissance nominale du PIB (croissance + inflation) et taux apparent de la dette
-    (intérêts versés / dette un an plus tôt), sur 4 trimestres glissants ;
+    (intérêts versés / dette un an plus tôt), sur 4 trimestres glissants ; avant 2000, chiffres
+    annuels depuis 1950 (FMI « Public Finances in Modern History », Global Macro Database) ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
     saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
@@ -61,6 +62,12 @@ TV_URL = "https://scanner.tradingview.com/global/scan"
 EUROSTAT_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}"
 EUROSTAT_GEO = {"GR": "EL"}  # Eurostat code la Grèce « EL »
 UA = {"User-Agent": "Mozilla/5.0"}
+# Historique annuel 1950-1999 (avant les séries trimestrielles d'Eurostat) : intérêts versés et dette en %
+# du PIB du FMI (« Public Finances in Modern History »), PIB nominal et réel de la Global Macro Database
+HIST_START, HIST_END = 1949, 1999
+IMF_URL = "https://www.imf.org/external/datamapper/api/v1/{indicator}"
+GMD_URL = "https://www.globalmacrodata.com/GMD.csv"
+ISO3 = {"GR": "GRC", "IT": "ITA", "ES": "ESP", "PT": "PRT", "IE": "IRL", "FR": "FRA", "DE": "DEU"}
 OUTPUT_BUDGET = ROOT / "data" / "budget.js"
 BUDGET_START = "2005"
 
@@ -198,6 +205,24 @@ def fetch_france(dataset, items, by_cofog=False):
     return out
 
 
+def fetch_history():
+    """{'ie'|'d'|'ngdp'|'rgdp': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END."""
+    years = {str(y) for y in range(HIST_START, HIST_END + 1)}
+    out = {}
+    for key in ("ie", "d"):   # % du PIB
+        # le FMI refuse les navigateurs (403) mais accepte un client en ligne de commande
+        values = json.loads(http(IMF_URL.format(indicator=key), headers={"User-Agent": "curl/8"}))["values"][key]
+        out[key] = {c: {y: v for y, v in values.get(iso, {}).items() if y in years and v is not None} for c, iso in ISO3.items()}
+    out["ngdp"], out["rgdp"] = {c: {} for c in COUNTRIES}, {c: {} for c in COUNTRIES}
+    code = {iso: c for c, iso in ISO3.items()}
+    for row in csv.DictReader(io.StringIO(http(GMD_URL, timeout=180))):
+        if (c := code.get(row["ISO3"])) and row["year"] in years:
+            for key, col in (("ngdp", "nGDP"), ("rgdp", "rGDP")):
+                if row[col]:
+                    out[key][c][row["year"]] = float(row[col])
+    return out
+
+
 def download():
     data = {"ecb": {}, "daily": {}, "live": {}, "fetched": datetime.now().strftime("%d/%m/%Y %H:%M")}
     for code, name in COUNTRIES.items():
@@ -218,6 +243,13 @@ def download():
     data["real_q"] = fetch_eurostat("namq_10_gdp", "1998-Q1", na_item="B1GQ", unit="CLV10_MEUR", s_adj="NSA")
     data["interest_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q1", na_item="D41PAY", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["debt_eur"] = fetch_eurostat("gov_10q_ggdebt", "1999-Q1", na_item="GD", sector="S13", unit="MIO_EUR")
+    print("  FMI et Global Macro Database : historique depuis 1950…", flush=True)
+    try:
+        data["hist"] = fetch_history()
+    except Exception as exc:   # données figées : on garde celles du cache
+        print(f"    indisponible ({exc})")
+        if CACHE.exists():
+            data["hist"] = json.loads(CACHE.read_text()).get("hist", {})
     print("  Eurostat : budget de la France…", flush=True)
     data["budget"] = fetch_france("gov_10a_main", BUDGET_ITEMS)
     data["cofog"] = fetch_france("gov_10a_exp", COFOG_ITEMS, by_cofog=True)
@@ -309,6 +341,8 @@ def growth_vs_rate(data):
     """Croissance nominale du PIB (croissance réelle + inflation), croissance réelle (volume) et taux
     apparent de la dette, en %, sur 4 trimestres glissants : {'growth'|'real'|'rate': {'XX': {q: %}}}.
     L'inflation (prix du PIB) se déduit par différence : nominale − réelle.
+    Avant 2000 : chiffres annuels (placés au 4e trimestre) tirés de l'historique ; taux apparent =
+    intérêts / dette de l'année précédente, ramenés de % du PIB en euros par la croissance nominale.
     Taux apparent = intérêts versés sur 4 trimestres / dette un an plus tôt : c'est le coût moyen de
     toute la dette, qui suit le taux de marché avec retard, au rythme du renouvellement des emprunts."""
     def yoy(series):
@@ -329,6 +363,19 @@ def growth_vs_rate(data):
             paid, owed = sum4(d41, q), debt.get(year_before(q))
             if q >= "2000-Q1" and paid is not None and owed:
                 rate[c][q] = 100 * paid / owed
+    hist = data.get("hist", {})
+    for c in COUNTRIES:
+        h = {k: hist.get(k, {}).get(c, {}) for k in ("ie", "d", "ngdp", "rgdp")}
+        for y in range(HIST_START + 1, HIST_END + 1):
+            y0, y1 = str(y - 1), str(y)
+            if not (h["ngdp"].get(y0) and h["ngdp"].get(y1)):
+                continue
+            nominal = h["ngdp"][y1] / h["ngdp"][y0] - 1
+            growth[c][f"{y}-Q4"] = 100 * nominal
+            if h["rgdp"].get(y0) and h["rgdp"].get(y1):
+                real[c][f"{y}-Q4"] = 100 * (h["rgdp"][y1] / h["rgdp"][y0] - 1)
+            if h["ie"].get(y1) is not None and h["d"].get(y0):
+                rate[c][f"{y}-Q4"] = 100 * h["ie"][y1] / h["d"][y0] * (1 + nominal)
     return {"growth": growth, "real": real, "rate": rate}
 
 

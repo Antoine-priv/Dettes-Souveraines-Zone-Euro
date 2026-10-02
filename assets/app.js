@@ -29,7 +29,6 @@ const align = d => Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods
 })]));
 const real = align(DATA.real);   // croissance en volume ; inflation (prix du PIB) = nominale − réelle
 const inflation = Object.fromEntries(ALL_CODES.map(c => [c, growth[c].map((g, i) => g == null || real[c][i] == null ? null : +(g - real[c][i]).toFixed(2))]));
-const gap = Object.fromEntries(ALL_CODES.map(c => [c, interest[c].map((r, i) => r == null || growth[c][i] == null ? null : +(r - growth[c][i]).toFixed(2))]));
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
@@ -52,9 +51,6 @@ const PANELS = [
     tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
       ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", "Taux moyen de la dette", interest[c][i], "dash"]]
       .map(([v, l, x, dash]) => `<div><span class="sw${dash ? " dash" : ""}" style="background:${css(v)}"></span>${l} <b>${pct(x)}</b></div>`).join("") },
-  { key: "gap", title: "Taux moyen de la dette − (croissance + inflation), points de %", codes: ALL_CODES, zero: true,
-    x: DATA.growth.periods.map(quarterEnd), y: c => gap[c],
-    text: v => `${v > 0 ? "+" : ""}${fmt(v)} pt (${v > 0 ? "boule de neige" : "la dette fond"})` },
 ].map(panel => ({ ...panel, stamps: panel.x.map(Date.parse) }));
 const PANEL = Object.fromEntries(PANELS.map(p => [p.key, p]));
 
@@ -90,7 +86,7 @@ function singleTraces(panel) {
   return [
     area("--s2", inflation[c], "tozeroy"),
     area("--s3", growth[c], "tonexty"),
-    { ...common, y: interest[c], line: { color: css("--text-primary"), width: 2, dash: "dot" } },
+    { ...common, y: interest[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
   ];
 }
 const buildTraces = () => shown.flatMap(panel => panel.single ? singleTraces(panel) : panel.codes.map(c => traces(panel, c)));
@@ -175,6 +171,7 @@ const config = { responsive: true, scrollZoom: false, displayModeBar: false, loc
 function render() {
   const fl = chart._fullLayout;
   const xRange = shown.length && fl?.xaxis?.range?.slice();
+  const xL = xRange && xRange.map(fl.xaxis.r2l);   // en ms
   const yRanges = Object.fromEntries(shown.map(p => [p.key, fl?.["yaxis" + p.n]?.range?.slice()]));
   shown = state.order.map(k => PANEL[k]).filter(p => !state.folded.has(p.key));
   shown.forEach((p, i) => { p.n = i ? String(i + 1) : ""; });
@@ -184,10 +181,14 @@ function render() {
     if (xRange) layout["xaxis" + p.n].range = xRange;
     if (!state.autoY && yRanges[p.key]) layout["yaxis" + p.n].range = yRanges[p.key];
   }
+  const data = buildTraces();
+  // échelle auto calculée avant le tracé : un seul dessin, le graphique déplié apparaît directement à la bonne échelle
+  if (state.autoY && xRange) Object.assign(layout, Object.fromEntries(Object.entries(autoRanges(data, xL))
+    .map(([k, r]) => [k, { ...layout[k], range: r }])));
   chart.style.height = geo.height + "px";
   paintTitles(geo);
   paintVlines();
-  return Plotly.react(chart, buildTraces(), layout, config).then(() => state.autoY && shown.length && fitY());
+  return Plotly.react(chart, data, layout, config).then(() => state.autoY && shown.length && !xRange && fitY());
 }
 
 // ---- Échelles ---------------------------------------------------------------------
@@ -201,11 +202,15 @@ function setAutoY(on) {
 // Ajuste l'échelle verticale de chaque graphique aux seules données visibles (séries affichées)
 function fitY() {
   if (!shown.length) return;
-  const [x0, x1] = xa().range.map(xa().r2l);
-  const upd = {};
+  const upd = Object.fromEntries(Object.entries(autoRanges(chart.data, xa().range.map(xa().r2l))).map(([k, r]) => [k + ".range", r]));
+  return Plotly.relayout(chart, upd);
+}
+// {yaxisN: [min, max]} des courbes visibles entre x0 et x1 (ms), avec une marge de 6 %
+function autoRanges(data, [x0, x1]) {
+  const out = {};
   for (const [axis, yname] of shown.map(p => ["y" + p.n, "yaxis" + p.n])) {
     let lo = Infinity, hi = -Infinity;
-    for (const t of chart.data) {
+    for (const t of data) {
       if (t.yaxis !== axis || t.visible === "legendonly") continue;
       t.x.forEach((x, i) => {
         const tx = Date.parse(x), v = t.y[i];
@@ -215,9 +220,9 @@ function fitY() {
     }
     if (lo === Infinity) continue;
     const pad = (hi - lo) * 0.06 || 0.5;
-    upd[yname + ".range"] = [lo - pad, hi + pad];
+    out[yname] = [lo - pad, hi + pad];
   }
-  return Plotly.relayout(chart, upd);
+  return out;
 }
 
 function setX(rangeL) {  // bornes en millisecondes
@@ -314,7 +319,7 @@ document.getElementById("autoY").onclick = () => setAutoY(true);
 
 const lastMonth = months[months.length - 1];
 const END = Date.UTC(+lastMonth.slice(0, 4), +lastMonth.slice(5, 7), 15);
-const START = Date.UTC(2005, 0, 1);   // vue initiale ; les données depuis 2000 restent accessibles en déplaçant
+const START = Date.UTC(2000, 0, 1);   // vue initiale ; l'historique depuis 1950 (croissance et taux) reste accessible en déplaçant
 const showDefault = () => { setAutoY(true); return setX([START, END]); };
 
 // ---- Légende (en haut de page, toujours visible) ---------------------------------
@@ -474,7 +479,9 @@ titles.addEventListener("change", ev => {
   try { localStorage.setItem("pick", state.pick); } catch {}
   render();
 });
-titles.addEventListener("click", ev => {
+// à l'appui du bouton (pas au relâchement) : réaction immédiate
+titles.addEventListener("pointerdown", ev => {
+  if (ev.button !== 0) return;
   const key = ev.target.closest(".fold") && ev.target.closest(".ptitle").dataset.key;
   if (key) toggleFold(key);
 });
