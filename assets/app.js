@@ -17,16 +17,14 @@ for (const c of SPREAD_CODES) {
 }
 const monthDate = m => m + "-15";
 const quarterEnd = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n, 0)).toISOString().slice(0, 10); };  // dette = encours fin de trimestre
-// Croissance nominale (croissance + inflation) et taux moyen de la dette, alignés sur les trimestres du PIB
+// Croissance nominale (croissance + inflation) et taux moyens de la dette, alignés sur les trimestres du PIB
 const growth = DATA.growth.series;
-const interest = Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods.map(q => {
-  const i = DATA.interest.periods.indexOf(q);
-  return i < 0 ? null : DATA.interest.series[c][i];
-})]));
 const align = d => Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods.map(q => {
   const i = d.periods.indexOf(q);
   return i < 0 ? null : d.series[c][i];
 })]));
+const interest = align(DATA.interest);          // dette publique
+const interestAll = align(DATA.interest_all);   // toute la dette : administrations, entreprises, ménages
 const real = align(DATA.real);   // croissance en volume ; inflation (prix du PIB) = nominale − réelle
 const inflation = Object.fromEntries(ALL_CODES.map(c => [c, growth[c].map((g, i) => g == null || real[c][i] == null ? null : +(g - real[c][i]).toFixed(2))]));
 // Valeurs sur 4 trimestres glissants (ou annuelles avant 2000, rangées au 4e trimestre) : placées au milieu
@@ -40,12 +38,21 @@ const windowLabel = q => {
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
+// Panneau à un seul pays (state.pick, choisi à droite du titre, commun aux deux panneaux), indépendamment de la légende
+function growthPanel(key, title, rate, rateLabel) {
+  return { key, title, rate, codes: ALL_CODES, zero: true, single: true,
+    x: DATA.growth.periods.map(windowMid), y: c => growth[c], date: i => windowLabel(DATA.growth.periods[i]),
+    tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
+      ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", rateLabel, rate[c][i], "dash"]]
+      .filter(r => r[2] != null).map(([v, l, x, dash]) => `<div><span class="sw${dash ? " dash" : ""}" style="background:${css(v)}"></span>${l} <b>${pct(x)}</b></div>`).join("") };
+}
+
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
 const PANELS = [
-  { key: "spread", title: "Spread 10 ans vs Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
+  { key: "spread", title: "Écart de taux d'emprunt d'État à 10 ans avec l'Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
-  { key: "rate", title: "Taux 10 ans (%)", codes: ALL_CODES, zero: true,
+  { key: "rate", title: "Taux d'emprunt d'État à 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
@@ -54,14 +61,11 @@ const PANELS = [
     connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(windowMid), y: c => DATA.deficit.series[c], date: i => windowLabel(DATA.deficit.periods[i]),
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
-  { key: "burden", title: "Charge d'intérêts (% du PIB)", codes: ALL_CODES, zero: true, connectgaps: true,
+  { key: "burden", title: "Intérêts de la dette publique (% du PIB)", codes: ALL_CODES, zero: true, connectgaps: true,
     x: DATA.burden.periods.map(windowMid), y: c => DATA.burden.series[c], date: i => windowLabel(DATA.burden.periods[i]), text: pctGDP },
-  // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
-  { key: "growth", title: "Inflation + croissance et taux moyen de la dette (%)", codes: ALL_CODES, zero: true, single: true,
-    x: DATA.growth.periods.map(windowMid), y: c => growth[c], date: i => windowLabel(DATA.growth.periods[i]),
-    tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
-      ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", "Taux moyen de la dette", interest[c][i], "dash"]]
-      .map(([v, l, x, dash]) => `<div><span class="sw${dash ? " dash" : ""}" style="background:${css(v)}"></span>${l} <b>${pct(x)}</b></div>`).join("") },
+  growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),
+  growthPanel("growthAll", "Inflation + croissance et taux moyen de toute la dette : État, entreprises, ménages (%)",
+    interestAll, "Taux moyen de toute la dette"),
 ].map(panel => ({ ...panel, stamps: panel.x.map(Date.parse) }));
 const PANEL = Object.fromEntries(PANELS.map(p => [p.key, p]));
 
@@ -97,7 +101,7 @@ function singleTraces(panel) {
   return [
     area("--s2", inflation[c], "tozeroy"),
     area("--s3", growth[c], "tonexty"),
-    { ...common, y: interest[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
+    { ...common, y: panel.rate[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
   ];
 }
 const buildTraces = () => shown.flatMap(panel => panel.single ? singleTraces(panel) : panel.codes.map(c => traces(panel, c)));

@@ -72,6 +72,7 @@ GMD_URL = "https://www.globalmacrodata.com/GMD.csv"
 ISO3 = {"GR": "GRC", "IT": "ITA", "ES": "ESP", "PT": "PRT", "IE": "IRL", "FR": "FRA", "DE": "DEU"}
 OUTPUT_BUDGET = ROOT / "data" / "budget.js"
 BUDGET_START = "2005"
+PRIVATE = ("S11", "S14_S15")   # sociétés non financières ; ménages et institutions sans but lucratif
 
 # Budget de la France : sous-secteurs des administrations publiques (ordre = ordre des couleurs)
 SUBSECTORS = {"S1311": "État", "S1314": "Sécurité sociale", "S1313": "Collectivités locales"}
@@ -246,6 +247,11 @@ def download():
     data["interest_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q1", na_item="D41PAY", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["debt_eur"] = fetch_eurostat("gov_10q_ggdebt", "1999-Q1", na_item="GD", sector="S13", unit="MIO_EUR")
     data["interest_a"] = fetch_eurostat("gov_10a_main", "2000", na_item="D41PAY", sector="S13", unit="PC_GDP")
+    print("  Eurostat : intérêts et dette des entreprises et des ménages…", flush=True)
+    data["private_interest_q"] = {s: fetch_eurostat("nasq_10_nf_tr", "1999-Q1", na_item="D41", direct="PAID", sector=s,
+                                                    unit="CP_MEUR", s_adj="NSA") for s in PRIVATE}
+    data["liabilities_q"] = {f"{s}_{i}": fetch_eurostat("nasq_10_f_bs", "1999-Q1", na_item=i, finpos="LIAB", sector=s,
+                                                        unit="MIO_EUR") for s in (*PRIVATE, "S13") for i in ("F3", "F4")}
     print("  FMI et Global Macro Database : historique depuis 1950…", flush=True)
     try:
         data["hist"] = fetch_history()
@@ -389,6 +395,24 @@ def growth_vs_rate(data):
     return {"growth": growth, "real": real, "rate": rate}
 
 
+def total_rate(data):
+    """{'XX': {q: %}} taux apparent de toute la dette de l'économie (hors sociétés financières) : intérêts versés sur
+    4 trimestres par les entreprises non financières, les ménages et les administrations publiques / leurs titres de
+    dette et crédits (F3 + F4, valeur des comptes financiers, non consolidée) un an plus tôt. Intérêts hors services
+    bancaires (SIFIM) : le taux est un peu inférieur à celui que facturent les banques."""
+    out = {}
+    for c in COUNTRIES:
+        paid = [data.get("private_interest_q", {}).get(s, {}).get(c, {}) for s in PRIVATE] + [data.get("interest_q", {}).get(c, {})]
+        owed = [v.get(c, {}) for v in data.get("liabilities_q", {}).values()]
+        out[c] = {}
+        for q in paid[-1]:
+            p = [sum4(d, q) for d in paid]
+            o = [d.get(year_before(q)) for d in owed]
+            if q >= "2000-Q1" and None not in p and owed and None not in o and sum(o):
+                out[c][q] = 100 * sum(p) / sum(o)
+    return out
+
+
 def interest_burden(data):
     """{'XX': {q: intérêts versés en % du PIB}} sur 4 trimestres glissants ; avant 2000 et pour les années sans
     données trimestrielles (IE, DE avant 2002), chiffre annuel (FMI, puis Eurostat) placé au 4e trimestre."""
@@ -468,6 +492,7 @@ def main():
         "growth": public_finances((gr := growth_vs_rate(data))["growth"]),
         "real": public_finances(gr["real"]),
         "interest": public_finances(gr["rate"]),
+        "interest_all": public_finances(total_rate(data)),
         "burden": public_finances(interest_burden(data)),
         "names": COUNTRIES,
         "fetched": data["fetched"],
@@ -486,7 +511,7 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "real", "interest", "burden"):
+    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden"):
         if periods := payload[key]["periods"]:
             print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:
