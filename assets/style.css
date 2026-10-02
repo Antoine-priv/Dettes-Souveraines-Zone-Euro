@@ -114,3 +114,12 @@ a.nav:hover { opacity: .75; }
 .nlabel.left { text-align: right; }
 .nlabel.sub { color: var(--text-secondary); font-size: 11px; }
 .nlabel.mid { transform: translate(-50%, -100%); font-weight: 600; background: var(--surface); padding: 1px 6px; border-radius: 4px; }
+/* protection sociale et déficit */
+.social h2 { font-size: 18px; font-weight: 700; margin: 24px 0 8px; }
+.social h2 span { font-size: 14px; font-weight: 400; color: var(--text-secondary); margin-left: 8px; }
+.social h3 { font-size: 14px; font-weight: 600; margin: 8px 0 0; color: var(--text-secondary); }
+.seg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+.seg button { background: transparent; border: 1px solid var(--grid); }
+.seg button[aria-pressed="true"] { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--text-primary); font-weight: 600; }
+.social .row { display: flex; flex-wrap: wrap; gap: 24px; }
+.social .row > div { flex: 1 1 520px; min-width: 0; }

@@ -222,7 +222,98 @@ function render() {
   draw("raw", raw, height(raw));
   document.getElementById("sum-cons").textContent = totals(d, true);
   document.getElementById("sum-raw").textContent = totals(d, false);
+  drawSocial();
 }
+
+// ---- Protection sociale et déficit ----------------------------------------------------------------
+// Dépenses sociales de toutes les administrations face aux recettes qui leur sont dédiées (cotisations,
+// cotisations imputées, CSG et autres recettes propres de la Sécu ; au choix, les impôts affectés à la Sécu).
+// Le reste des dépenses est financé par les autres recettes ; les deux soldes font le déficit public.
+const BLOCKS = [
+  ["Protection sociale", ["Retraites", "Santé", "Maladie, invalidité (indemnités)", "Famille", "Chômage", "Logement, RSA et solidarité"]],
+  ["Éducation et recherche", ["Enseignement", "Recherche"]],
+  ["Régalien", ["Défense", "Sécurité (police, pompiers)", "Justice et prisons"]],
+  ["Autres dépenses", ["Économie, emploi, transports", "Environnement", "Urbanisme, eau, équipements", "Culture, sport, médias", "Administration générale"]],
+  ["Intérêts de la dette", ["Intérêts de la dette"]],
+].map(([name, fs]) => [name, fs.map(f => B.functions.indexOf(f))]);
+const SOCIAL_REV = ["Cotisations sociales", "Cotisations retraite imputées"];   // toutes administrations
+const SECU_REV = ["Impôts sur le revenu (IR, CSG)", "Ventes et recettes de services", "Autres recettes"];   // CSG pour la Sécu
+const SECU_TAXES = ["TVA", "Autres impôts sur la production", "Impôt sur les sociétés", "Impôts sur le patrimoine, successions"];
+let affect = "social";
+try { affect = localStorage.getItem("affect") || affect; } catch {}
+
+function socialAccount(d) {
+  const ri = n => B.revenues.indexOf(n);
+  const all = SECTORS.reduce((a, s) => a + d[s].rev.reduce((x, v) => x + v, 0), 0);
+  let social = SECTORS.reduce((a, s) => a + SOCIAL_REV.reduce((x, n) => x + d[s].rev[ri(n)], 0), 0)
+    + SECU_REV.reduce((x, n) => x + d.S1314.rev[ri(n)], 0);
+  if (affect === "social") social += SECU_TAXES.reduce((x, n) => x + d.S1314.rev[ri(n)], 0);
+  const spend = BLOCKS.map(([, fs]) => SECTORS.reduce((a, s) => a + fs.reduce((x, i) => x + d[s].exp[i] + d[s].imp[i], 0), 0));
+  return { social, other: all - social, spend,
+           socialBalance: social - spend[0], otherBalance: all - social - spend.slice(1).reduce((a, v) => a + v, 0) };
+}
+
+const AXIS = () => ({ gridcolor: css("--grid"), zerolinecolor: css("--zero"), tickfont: { color: css("--text-secondary") }, automargin: true });
+const signed = v => (v < 0 ? "−" : "+") + md(Math.abs(v));
+
+function drawSocial() {
+  const a = socialAccount(B.data[year]);
+  const deficit = a.socialBalance + a.otherBalance;
+  document.getElementById("sum-social").textContent =
+    `solde de la protection sociale ${signed(a.socialBalance)}, déficit public ${signed(deficit)} en ${year}`;
+  document.getElementById("wf-title").textContent = `En ${year}`;
+  const rows = [
+    ["Recettes sociales", a.social, "relative"],
+    ["Dépenses sociales", -a.spend[0], "relative"],
+    ["Solde de la protection sociale", 0, "total"],
+    ["Autres recettes", a.other, "relative"],
+    ...BLOCKS.slice(1).map(([name], i) => [name, -a.spend[i + 1], "relative"]),
+    ["Déficit public", 0, "total"],
+  ];
+  // valeur dans le libellé de l'axe : montant de la barre, ou solde cumulé pour les totaux
+  let run = 0;
+  const text = rows.map(([, v, m]) => m === "total" ? signed(run) : (run += v, (v < 0 ? "−" : "") + md(Math.abs(v))));
+  const muted = css("--text-muted");
+  Plotly.react("waterfall", [{
+    type: "waterfall", orientation: "h", x: rows.map(r => r[1]), measure: rows.map(r => r[2]),
+    y: rows.map((r, i) => `${r[2] === "total" ? `<b>${r[0]}</b>` : r[0]}  <span style="color:${muted}">${text[i]}</span>`),
+    increasing: { marker: { color: css("--zero") } }, decreasing: { marker: { color: css("--text-secondary") } },
+    totals: { marker: { color: css(DEFICIT_VAR) } }, connector: { line: { color: css("--grid") } },
+    hoverinfo: "skip",
+  }], {
+    height: 420, margin: { l: 8, r: 8, t: 8, b: 30 }, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    xaxis: { ...AXIS(), ticksuffix: " Md€", separators: ", " }, yaxis: { ...AXIS(), autorange: "reversed" },
+    separators: ", ", showlegend: false,
+  }, CONFIG);
+
+  // évolution : solde social, solde du reste et déficit public, en milliards d'euros
+  const acc = B.years.map(y => socialAccount(B.data[y]));
+  const series = [
+    ["Protection sociale", acc.map(a => a.socialBalance), "--s3"],
+    ["Reste de l'action publique", acc.map(a => a.otherBalance), "--s7"],
+    ["Déficit public", acc.map(a => a.socialBalance + a.otherBalance), DEFICIT_VAR],
+  ];
+  Plotly.react("trend", series.map(([name, ys, c]) => ({
+    type: "scatter", mode: "lines", name, x: B.years, y: ys, line: { color: css(c), width: 2 },
+    hovertemplate: `${name} : %{y:,.0f} Md€<extra></extra>`,
+  })), {
+    height: 420, margin: { l: 8, r: 8, t: 8, b: 30 }, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    xaxis: { ...AXIS(), dtick: 2 }, yaxis: { ...AXIS(), ticksuffix: " Md€", zerolinewidth: 1.5 },
+    separators: ", ", hovermode: "x unified", hoverlabel: { bgcolor: css("--surface"), bordercolor: css("--grid"), font: { color: css("--text-primary") } },
+    legend: { orientation: "h", x: 0, y: 1.08, font: { color: css("--text-primary") } },
+  }, CONFIG);
+}
+
+const affectBox = document.getElementById("affect");
+const paintAffect = () => affectBox.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === affect));
+affectBox.onclick = ev => {
+  if (!ev.target.dataset.v) return;
+  affect = ev.target.dataset.v;
+  try { localStorage.setItem("affect", affect); } catch {}
+  paintAffect();
+  drawSocial();
+};
+paintAffect();
 
 // Choix de l'année (les plus récentes en premier)
 const select = document.getElementById("year");
