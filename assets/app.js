@@ -23,6 +23,12 @@ const interest = Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods.m
   const i = DATA.interest.periods.indexOf(q);
   return i < 0 ? null : DATA.interest.series[c][i];
 })]));
+const align = d => Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods.map(q => {
+  const i = d.periods.indexOf(q);
+  return i < 0 ? null : d.series[c][i];
+})]));
+const real = align(DATA.real);   // croissance en volume ; inflation (prix du PIB) = nominale − réelle
+const inflation = Object.fromEntries(ALL_CODES.map(c => [c, growth[c].map((g, i) => g == null || real[c][i] == null ? null : +(g - real[c][i]).toFixed(2))]));
 const gap = Object.fromEntries(ALL_CODES.map(c => [c, interest[c].map((r, i) => r == null || growth[c][i] == null ? null : +(r - growth[c][i]).toFixed(2))]));
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
@@ -40,9 +46,12 @@ const PANELS = [
     connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(quarterEnd), y: c => DATA.deficit.series[c],
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
-  { key: "growth", title: "Croissance + inflation (trait plein) et taux moyen de la dette (pointillés), %", codes: ALL_CODES, zero: true,
-    x: DATA.growth.periods.map(quarterEnd), y: c => growth[c], dashed: c => interest[c],
-    row: (c, i) => `croissance + inflation <b>${pct(growth[c][i])}</b> · taux <b>${pct(interest[c][i])}</b>` },
+  // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
+  { key: "growth", title: "Inflation + croissance et taux moyen de la dette (%)", codes: ALL_CODES, zero: true, single: true,
+    x: DATA.growth.periods.map(quarterEnd), y: c => growth[c],
+    tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
+      ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", "Taux moyen de la dette", interest[c][i], "dash"]]
+      .map(([v, l, x, dash]) => `<div><span class="sw${dash ? " dash" : ""}" style="background:${css(v)}"></span>${l} <b>${pct(x)}</b></div>`).join("") },
   { key: "gap", title: "Taux moyen de la dette − (croissance + inflation), points de %", codes: ALL_CODES, zero: true,
     x: DATA.growth.periods.map(quarterEnd), y: c => gap[c],
     text: v => `${v > 0 ? "+" : ""}${fmt(v)} pt (${v > 0 ? "boule de neige" : "la dette fond"})` },
@@ -59,21 +68,32 @@ try {
   state.folded = new Set(saved.folded.filter(k => PANEL[k]));
 } catch {}
 const savePanels = () => { try { localStorage.setItem("panels", JSON.stringify({ order: state.order, folded: [...state.folded] })); } catch {} };
+state.pick = "FR";   // pays du panneau « single »
+try { const p = localStorage.getItem("pick"); if (ALL_CODES.includes(p)) state.pick = p; } catch {}
 let shown = [];   // panneaux dépliés, dans l'ordre d'affichage
 
 // ---- Construction des traces --------------------------------------------------
-function traces(panel, code, vals = panel.y(code), dash = "solid") {
+function traces(panel, code) {
   return {
     name: DATA.names[code], legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
     showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
-    type: "scatter", mode: "lines", x: panel.x, y: vals,
-    line: { color: COLOR(code), width: 2, dash }, connectgaps: !!panel.connectgaps,
+    type: "scatter", mode: "lines", x: panel.x, y: panel.y(code),
+    line: { color: COLOR(code), width: 2 }, connectgaps: !!panel.connectgaps,
   };
 }
 
-// panneau à deux courbes par pays (dashed) : trait plein + pointillés de la même couleur
-const buildTraces = () => shown.flatMap(panel => panel.codes.flatMap(c =>
-  panel.dashed ? [traces(panel, c), traces(panel, c, panel.dashed(c), "dot")] : [traces(panel, c)]));
+// Panneau à un seul pays : aires empilées inflation (0 → inflation) puis croissance (→ inflation + croissance),
+// et taux moyen de la dette en pointillés ; ces courbes ne dépendent pas de la légende (pas de legendgroup).
+function singleTraces(panel) {
+  const c = state.pick, common = { xaxis: "x" + panel.n, yaxis: "y" + panel.n, showlegend: false, type: "scatter", mode: "lines", x: panel.x };
+  const area = (v, y, fill) => ({ ...common, y, fill, fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } });
+  return [
+    area("--s2", inflation[c], "tozeroy"),
+    area("--s3", growth[c], "tonexty"),
+    { ...common, y: interest[c], line: { color: css("--text-primary"), width: 2, dash: "dot" } },
+  ];
+}
+const buildTraces = () => shown.flatMap(panel => panel.single ? singleTraces(panel) : panel.codes.map(c => traces(panel, c)));
 
 // ---- Mise en page ---------------------------------------------------------------
 const EVENTS = [
@@ -369,15 +389,23 @@ function showHover(ev, hit) {
   });
   const panel = shown.find(p => "yaxis" + p.n === hit.axis);
   const i = nearest(panel.stamps, t);
+  if (panel.single) {
+    tip.innerHTML = `<div class="date">${monthYear.format(panel.stamps[i])} · ${DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
+    hline.hidden = true;
+    return placeTip(px, py, s, r);
+  }
   const rows = panel.codes.filter(c => !state.hidden.has(c))
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
   tip.innerHTML = `<div class="date">${monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
-    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} ${panel.row ? panel.row(c, i) : `<b>${panel.text(v)}</b>`}</div>`).join("");
+    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
   // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
-  const ya = fl[hit.axis], y = rows.length === 1 && !panel.dashed ? ya._offset + ya.l2p(rows[0].v) : NaN;
+  const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
   const d = ya.domain, inside = y >= s.t + (1 - d[1]) * s.h && y <= s.t + (1 - d[0]) * s.h;
   hline.hidden = !inside;
   if (inside) Object.assign(hline.style, { top: y + "px", left: s.l + "px", width: s.w + "px" });
+  placeTip(px, py, s, r);
+}
+function placeTip(px, py, s, r) {
   hover.hidden = false;
   // à droite du curseur, ou à gauche s'il n'y a pas la place
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -405,7 +433,9 @@ function paintTitles(geo) {
     const folded = state.folded.has(b.key);
     return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
       `<span class="ttl"><button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
-      `${PANEL[b.key].title}</span></div>`;
+      `${PANEL[b.key].title}</span></div>` +
+      (PANEL[b.key].single && !folded ? `<select class="pick" style="top:${b.top + 12}px">` +
+        ALL_CODES.map(c => `<option value="${c}"${c === state.pick ? " selected" : ""}>${DATA.names[c]}</option>`).join("") + "</select>" : "");
   }).join("");
   titles.geo = geo;
 }
@@ -441,6 +471,12 @@ async function toggleFold(key) {
   savePanels();
   animating = false;
 }
+titles.addEventListener("change", ev => {
+  if (!ev.target.matches(".pick")) return;
+  state.pick = ev.target.value;
+  try { localStorage.setItem("pick", state.pick); } catch {}
+  render();
+});
 titles.addEventListener("click", ev => {
   const key = ev.target.closest(".fold") && ev.target.closest(".ptitle").dataset.key;
   if (key) toggleFold(key);

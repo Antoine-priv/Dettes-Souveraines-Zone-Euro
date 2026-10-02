@@ -215,6 +215,7 @@ def download():
     data["balance"] = fetch_eurostat("gov_10dd_edpt1", "2000", na_item="B9", **gov)
     data["balance_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q2", na_item="B9", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["gdp_q"] = fetch_eurostat("namq_10_gdp", "1998-Q1", na_item="B1GQ", unit="CP_MEUR", s_adj="NSA")
+    data["real_q"] = fetch_eurostat("namq_10_gdp", "1998-Q1", na_item="B1GQ", unit="CLV10_MEUR", s_adj="NSA")
     data["interest_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q1", na_item="D41PAY", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["debt_eur"] = fetch_eurostat("gov_10q_ggdebt", "1999-Q1", na_item="GD", sector="S13", unit="MIO_EUR")
     print("  Eurostat : budget de la France…", flush=True)
@@ -305,23 +306,30 @@ def year_before(q):
 
 
 def growth_vs_rate(data):
-    """Croissance nominale du PIB (croissance réelle + inflation) et taux apparent de la dette, en %,
-    sur 4 trimestres glissants : {'growth': {'XX': {q: %}}, 'rate': {'XX': {q: %}}}.
+    """Croissance nominale du PIB (croissance réelle + inflation), croissance réelle (volume) et taux
+    apparent de la dette, en %, sur 4 trimestres glissants : {'growth'|'real'|'rate': {'XX': {q: %}}}.
+    L'inflation (prix du PIB) se déduit par différence : nominale − réelle.
     Taux apparent = intérêts versés sur 4 trimestres / dette un an plus tôt : c'est le coût moyen de
     toute la dette, qui suit le taux de marché avec retard, au rythme du renouvellement des emprunts."""
-    growth, rate = {}, {}
-    for c in COUNTRIES:
-        gdp, d41, debt = (data.get(k, {}).get(c, {}) for k in ("gdp_q", "interest_q", "debt_eur"))
-        growth[c], rate[c] = {}, {}
-        for q in gdp:
-            now, before = sum4(gdp, q), sum4(gdp, year_before(q))
+    def yoy(series):
+        out = {}
+        for q in series:
+            now, before = sum4(series, q), sum4(series, year_before(q))
             if q >= "2000-Q1" and now and before:
-                growth[c][q] = 100 * (now / before - 1)
+                out[q] = 100 * (now / before - 1)
+        return out
+
+    growth, real, rate = {}, {}, {}
+    for c in COUNTRIES:
+        d41, debt = (data.get(k, {}).get(c, {}) for k in ("interest_q", "debt_eur"))
+        growth[c] = yoy(data.get("gdp_q", {}).get(c, {}))
+        real[c] = yoy(data.get("real_q", {}).get(c, {}))
+        rate[c] = {}
         for q in d41:
             paid, owed = sum4(d41, q), debt.get(year_before(q))
             if q >= "2000-Q1" and paid is not None and owed:
                 rate[c][q] = 100 * paid / owed
-    return {"growth": growth, "rate": rate}
+    return {"growth": growth, "real": real, "rate": rate}
 
 
 def budget(data):
@@ -384,6 +392,7 @@ def main():
         "debt": public_finances(data.get("debt", {})),
         "deficit": public_finances(rolling_deficit(data)),
         "growth": public_finances((gr := growth_vs_rate(data))["growth"]),
+        "real": public_finances(gr["real"]),
         "interest": public_finances(gr["rate"]),
         "names": COUNTRIES,
         "fetched": data["fetched"],
@@ -402,7 +411,7 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "interest"):
+    for key in ("debt", "deficit", "growth", "real", "interest"):
         if periods := payload[key]["periods"]:
             print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:

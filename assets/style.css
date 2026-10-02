@@ -92,6 +92,8 @@ button:hover { opacity: .75; }
 }
 .ptitle:hover .fold { opacity: 1; }
 .ptitle .fold:hover { background: var(--btn-bg); color: var(--text-primary); }
+.pick { position: absolute; right: 56px; pointer-events: auto; }
+#tip .sw.dash { background: none !important; border-top: 2px dotted var(--text-primary); height: 0; }
 #dropline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text-secondary); pointer-events: none; }
 #dropline[hidden] { display: none; }
 .cover { position: absolute; left: 0; right: 0; background: var(--surface); pointer-events: none; }
