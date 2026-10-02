@@ -264,17 +264,23 @@ function fitY() {
   return Plotly.relayout(chart, upd);
 }
 // {yaxisN: [min, max]} des courbes visibles entre x0 et x1 (ms), avec une marge de 6 %
+const msCache = new WeakMap();   // dates des courbes en ms, calculées une fois par tableau
+const toMs = xs => { let m = msCache.get(xs); if (!m) msCache.set(xs, m = Float64Array.from(xs, Date.parse)); return m; };
 function autoRanges(data, [x0, x1]) {
   const out = {};
   for (const [axis, yname] of shown.map(p => ["y" + p.n, "yaxis" + p.n])) {
     let lo = Infinity, hi = -Infinity;
     for (const t of data) {
       if (t.yaxis !== axis || t.visible === "legendonly") continue;
-      t.x.forEach((x, i) => {
-        const tx = Date.parse(x), v = t.y[i];
-        if (tx < x0 || tx > x1 || v == null) return;
-        lo = Math.min(lo, v); hi = Math.max(hi, v);
-      });
+      const ms = toMs(t.x), y = t.y;
+      let a = 0, b = ms.length;   // dates triées : premier point ≥ x0 par dichotomie
+      while (a < b) { const m = (a + b) >> 1; if (ms[m] < x0) a = m + 1; else b = m; }
+      for (let i = a; i < ms.length && ms[i] <= x1; i++) {
+        const v = y[i];
+        if (v == null) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
     }
     if (lo === Infinity) continue;
     const pad = (hi - lo) * 0.06 || 0.5;
@@ -286,7 +292,10 @@ function autoRanges(data, [x0, x1]) {
 function setX(rangeL) {  // bornes en millisecondes
   if (!shown.length) return Promise.resolve();
   const r = rangeL.map(xa().l2r);
-  return Plotly.relayout(chart, Object.fromEntries(shown.map(p => [`xaxis${p.n}.range`, r])));
+  const upd = Object.fromEntries(shown.map(p => [`xaxis${p.n}.range`, r]));
+  // échelle auto dans le même appel : un seul dessin au lieu de deux (voir plotly_relayout)
+  if (state.autoY) for (const [k, y] of Object.entries(autoRanges(chart.data, rangeL))) upd[k + ".range"] = y;
+  return Plotly.relayout(chart, upd);
 }
 
 
@@ -307,8 +316,16 @@ function hitTest(ev) {
 const pxToL = px => xa().p2l(px - chart._fullLayout._size.l);
 
 // Facteurs d'échelle : glisser sur un axe = étirer / comprimer (comme TradingView)
-let drag = null, frame = null;
-const throttle = fn => { if (frame) return; frame = requestAnimationFrame(() => { frame = null; fn(); }); };
+// Au plus un dessin par image, avec la dernière position de la souris, jamais deux dessins Plotly en même temps
+let drag = null, frame = null, next = null, busy = false;
+const throttle = fn => { next = fn; if (!frame && !busy) frame = requestAnimationFrame(flush); };
+function flush() {
+  frame = null;
+  const fn = next; next = null;
+  if (!fn) return;
+  busy = true;
+  Promise.resolve(fn()).finally(() => { busy = false; if (next) frame = requestAnimationFrame(flush); });
+}
 
 function scaleY(axis, range, f) {
   const c = (range[0] + range[1]) / 2, h = (range[1] - range[0]) / 2 * f;
@@ -347,13 +364,14 @@ window.addEventListener("mousemove", ev => {
 });
 window.addEventListener("mouseup", () => { drag = null; });
 
+let wheelDelta = 0;
 // Ctrl + molette sur le tracé = zoom temporel ; ailleurs (axes compris), la molette fait défiler la page.
 chart.addEventListener("wheel", ev => {
   const hit = hitTest(ev);
   if (hit?.kind !== "plot" || !(ev.ctrlKey || ev.metaKey)) return;
   ev.preventDefault(); ev.stopPropagation();
-  const delta = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;
-  throttle(() => scaleX(xa().range.map(xa().r2l), Math.exp(delta * 0.0015), pxToL(hit.px)));   // vers le bas = dézoomer
+  wheelDelta += ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;   // cumulé jusqu'au prochain dessin
+  throttle(() => { const f = Math.exp(wheelDelta * 0.0015); wheelDelta = 0; return scaleX(xa().range.map(xa().r2l), f, pxToL(hit.px)); });   // vers le bas = dézoomer
 }, { capture: true, passive: false });
 
 // Double-clic : axe vertical = échelle auto ; axe du temps ou tracé = vue initiale
@@ -367,7 +385,8 @@ chart.addEventListener("dblclick", ev => {
 function attachPlotlyEvents() {
   // Toute modification de l'axe du temps (déplacement, zoom) réajuste les taux en mode Auto
   chart.on("plotly_relayout", ev => {
-    if (state.autoY && Object.keys(ev).some(k => k.startsWith("xaxis"))) fitY();
+    const keys = Object.keys(ev);   // « yaxisN.range » : échelles déjà ajustées par setX
+    if (state.autoY && keys.some(k => k.startsWith("xaxis")) && !keys.some(k => /^yaxis\d*\.range$/.test(k))) fitY();
   });
   chart.on("plotly_restyle", () => state.autoY && fitY());   // pays masqué / affiché
   chart.on("plotly_afterplot", () => paintEvents());
