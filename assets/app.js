@@ -439,8 +439,8 @@ function paintTitles(geo) {
   }).join("");
   titles.geo = geo;
 }
-// Repli / dépliage en fondu : un cache couleur de fond recouvre le graphique (tracé + axe du temps)
-// et passe d'opaque à transparent (dépliage) ou l'inverse (repli). Les autres graphiques se décalent d'un coup.
+// Repli en fondu : un cache couleur de fond recouvre le graphique (tracé + axe du temps) et devient opaque,
+// puis les autres graphiques se décalent d'un coup. Le dépliage, lui, est immédiat.
 const FADE_MS = 220;
 let animating = false;
 function makeCover(key, opacity) {
@@ -456,11 +456,8 @@ async function toggleFold(key) {
   animating = true;
   hideHover();
   if (state.folded.has(key)) {
-    state.folded.delete(key);
-    const cover = makeCover(key, 1);   // posé avant le rendu : le graphique n'apparaît jamais d'un coup
+    state.folded.delete(key);   // dépliage : affichage immédiat, sans fondu
     await render();
-    await fade(cover, 1, 0);
-    cover.remove();
   } else {
     const cover = makeCover(key, 0);
     await fade(cover, 0, 1);
