@@ -342,7 +342,7 @@ window.addEventListener("mousemove", ev => {
   const d = drag;
   throttle(() => {
     if (d.kind === "y") scaleY(d.axis, d.range, Math.exp((ev.clientY - d.start) * 0.006));   // vers le bas = comprimer
-    else scaleX(d.range, Math.exp(-(ev.clientX - d.start) * 0.006), d.anchor);             // vers la droite = étirer
+    else scaleX(d.range, Math.exp((ev.clientX - d.start) * 0.006), d.anchor);              // vers la droite = comprimer
   });
 });
 window.addEventListener("mouseup", () => { drag = null; });
