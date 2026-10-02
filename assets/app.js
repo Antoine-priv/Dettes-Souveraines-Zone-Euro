@@ -39,10 +39,6 @@ const windowLabel = q => {
 };
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
-// Notes de Moody's : 1 = C … 21 = Aaa ; sous Baa3 (11), catégorie spéculative
-const SCALE = DATA.ratings.scale, SPECULATIVE = 10.5;
-// courbes légèrement décalées pour que les pays de même note restent visibles côte à côte
-const RATING_OFFSET = c => (ALL_CODES.indexOf(c) - 3) * 0.06;
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
@@ -51,14 +47,6 @@ const PANELS = [
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
   { key: "rate", title: "Taux 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
-  { key: "rating", title: "Note de Moody's (dette à long terme)", codes: ALL_CODES, zero: SPECULATIVE, step: true,
-    x: months.map(monthDate), y: c => DATA.ratings.rating[c],
-    plotY: c => DATA.ratings.rating[c].map(v => v == null ? null : v + RATING_OFFSET(c)),
-    yaxis: { tickvals: SCALE.map((_, i) => i + 1), ticktext: SCALE },
-    text: (v, c, i) => {
-      const notes = [DATA.ratings.outlook[c][i] && `perspective ${DATA.ratings.outlook[c][i]}`, v < SPECULATIVE && "catégorie spéculative"].filter(Boolean);
-      return SCALE[v - 1] + (notes.length ? ` <span class="muted">(${notes.join(", ")})</span>` : "");
-    } },
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
@@ -68,8 +56,6 @@ const PANELS = [
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
   { key: "burden", title: "Charge d'intérêts (% du PIB)", codes: ALL_CODES, zero: true, connectgaps: true,
     x: DATA.burden.periods.map(windowMid), y: c => DATA.burden.series[c], date: i => windowLabel(DATA.burden.periods[i]), text: pctGDP },
-  { key: "maturity", title: "Maturité moyenne des titres de dette (années)", codes: ALL_CODES,
-    x: DATA.maturity.periods.map(monthDate), y: c => DATA.maturity.series[c], text: v => `${v.toFixed(1).replace(".", ",")} ans` },
   // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
   { key: "growth", title: "Inflation + croissance et taux moyen de la dette (%)", codes: ALL_CODES, zero: true, single: true,
     x: DATA.growth.periods.map(windowMid), y: c => growth[c], date: i => windowLabel(DATA.growth.periods[i]),
@@ -98,8 +84,8 @@ function traces(panel, code) {
   return {
     name: DATA.names[code], legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
     showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
-    type: "scatter", mode: "lines", x: panel.x, y: (panel.plotY || panel.y)(code),
-    line: { color: COLOR(code), width: 2, ...(panel.step && { shape: "hv" }) }, connectgaps: !!panel.connectgaps,
+    type: "scatter", mode: "lines", x: panel.x, y: panel.y(code),
+    line: { color: COLOR(code), width: 2 }, connectgaps: !!panel.connectgaps,
   };
 }
 
@@ -203,7 +189,7 @@ function baseLayout(geo) {
   const shapes = [
     ...shown.flatMap(p => visibleEvents().map(([d, , , c]) => eventLine(d, "x" + p.n, `y${p.n} domain`, c))),
     ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
-    ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: p.zero === true ? 0 : p.zero, y1: p.zero === true ? 0 : p.zero, line: { color: css("--zero"), width: 1 }, layer: "below" })),
+    ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
   const frac = px => 1 - px / geo.height;
@@ -212,7 +198,7 @@ function baseLayout(geo) {
     const b = geo.blocks.find(b => b.key === p.key);
     axes["xaxis" + p.n] = { ...axisCommon, domain: [0, 1], anchor: "y" + p.n, type: "date",
       rangeslider: { visible: false }, ...(p.n && { matches: "x" }) };
-    axes["yaxis" + p.n] = { ...yCommon, ...p.yaxis, domain: [frac(b.plotBottom), frac(b.plotTop)] };
+    axes["yaxis" + p.n] = { ...yCommon, domain: [frac(b.plotBottom), frac(b.plotTop)] };
   }
   if (!shown.length) axes.xaxis = axes.yaxis = { visible: false };   // tout est replié
   return {
@@ -520,7 +506,7 @@ function showHover(ev, hit) {
   const rows = panel.codes.filter(c => !state.hidden.has(c))
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
   tip.innerHTML = `<div class="date">${panel.date ? panel.date(i) : monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
-    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v, c, i)}</b></div>`).join("");
+    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
   // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
   const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
   const d = ya.domain, inside = y >= s.t + (1 - d[1]) * s.h && y <= s.t + (1 - d[0]) * s.h;
