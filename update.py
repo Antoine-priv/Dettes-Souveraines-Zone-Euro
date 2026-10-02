@@ -13,6 +13,7 @@ Finances publiques (Eurostat, administrations publiques S13) :
   - croissance nominale du PIB (croissance + inflation) et taux apparent de la dette
     (intérêts versés / dette un an plus tôt), sur 4 trimestres glissants ; avant 2000, chiffres
     annuels depuis 1950 (FMI « Public Finances in Modern History », Global Macro Database) ;
+  - dette et déficit avant 2000 : chiffres annuels du FMI depuis 1950 (déficit = intérêts − solde primaire) ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
     saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
@@ -206,10 +207,10 @@ def fetch_france(dataset, items, by_cofog=False):
 
 
 def fetch_history():
-    """{'ie'|'d'|'ngdp'|'rgdp': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END."""
+    """{'ie'|'d'|'pb'|'ngdp'|'rgdp': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END."""
     years = {str(y) for y in range(HIST_START, HIST_END + 1)}
     out = {}
-    for key in ("ie", "d"):   # % du PIB
+    for key in ("ie", "d", "pb"):   # % du PIB (pb : solde primaire, hors intérêts)
         # le FMI refuse les navigateurs (403) mais accepte un client en ligne de commande
         values = json.loads(http(IMF_URL.format(indicator=key), headers={"User-Agent": "curl/8"}))["values"][key]
         out[key] = {c: {y: v for y, v in values.get(iso, {}).items() if y in years and v is not None} for c, iso in ISO3.items()}
@@ -308,6 +309,13 @@ def public_finances(series):
     return {"periods": periods, "series": table(series, periods, 2)}
 
 
+def history_debt(data):
+    """Dette trimestrielle d'Eurostat, précédée de la dette annuelle du FMI (fin d'année, au 4e trimestre) de 1950 à 1999."""
+    hist = data.get("hist", {}).get("d", {})
+    return {c: {**{f"{y}-Q4": v for y, v in hist.get(c, {}).items() if "1950" <= y <= str(HIST_END)},
+                **data.get("debt", {}).get(c, {})} for c in COUNTRIES}
+
+
 def rolling_deficit(data):
     """{'XX': {'AAAA-Qn': déficit en % du PIB sur les 4 trimestres finissant à Qn}} (déficit > 0)."""
     out = {}
@@ -319,6 +327,11 @@ def rolling_deficit(data):
             for i in range(3, len(qs))
             if qs[i] >= "2000-Q1" and quarters_apart(qs[i - 3], qs[i]) == 3
         }
+        # Avant 2000 : déficit annuel du FMI = intérêts − solde primaire, placé au 4e trimestre
+        hist = data.get("hist", {})
+        for y, v in hist.get("pb", {}).get(c, {}).items():
+            if "1950" <= y <= str(HIST_END) and (i := hist.get("ie", {}).get(c, {}).get(y)) is not None:
+                out[c][f"{y}-Q4"] = i - v
         # Années sans données trimestrielles : chiffre annuel officiel, placé au 4e trimestre
         for y, v in data.get("balance", {}).get(c, {}).items():
             if not any(q.startswith(y) for q in out[c]):
@@ -436,7 +449,7 @@ def main():
         "months": months,
         "series": table(monthly, months, 4),
         # Les deux tableaux suivants : listes de périodes + valeurs alignées par pays
-        "debt": public_finances(data.get("debt", {})),
+        "debt": public_finances(history_debt(data)),
         "deficit": public_finances(rolling_deficit(data)),
         "growth": public_finances((gr := growth_vs_rate(data))["growth"]),
         "real": public_finances(gr["real"]),

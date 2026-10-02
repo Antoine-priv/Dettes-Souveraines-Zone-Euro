@@ -48,10 +48,11 @@ const PANELS = [
   { key: "rate", title: "Taux 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
-    x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP },
+    x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
+    date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
   { key: "deficit", title: "Déficit public (% du PIB)", codes: ALL_CODES, zero: true,
-    connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
-    x: DATA.deficit.periods.map(quarterEnd), y: c => DATA.deficit.series[c],
+    connectgaps: true,   // avant 2000 (et IE, DE avant 2002) : un point annuel par an
+    x: DATA.deficit.periods.map(windowMid), y: c => DATA.deficit.series[c], date: i => windowLabel(DATA.deficit.periods[i]),
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
   // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
   { key: "growth", title: "Inflation + croissance et taux moyen de la dette (%)", codes: ALL_CODES, zero: true, single: true,
@@ -476,7 +477,7 @@ function showHover(ev, hit) {
   }
   const rows = panel.codes.filter(c => !state.hidden.has(c))
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
-  tip.innerHTML = `<div class="date">${monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
+  tip.innerHTML = `<div class="date">${panel.date ? panel.date(i) : monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
     `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
   // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
   const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
