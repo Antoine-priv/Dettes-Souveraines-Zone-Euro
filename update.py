@@ -14,12 +14,16 @@ Finances publiques (Eurostat, administrations publiques S13) :
     (intérêts versés / dette un an plus tôt), sur 4 trimestres glissants ; avant 2000, chiffres
     annuels depuis 1950 (FMI « Public Finances in Modern History », Global Macro Database) ;
   - dette avant 2000 : chiffres annuels du FMI depuis 1950 ;
+  - charge d'intérêts en % du PIB sur 4 trimestres glissants (D41PAY / PIB), annuelle avant 2000 (FMI) ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
     saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
     trimestre, on retrouve le chiffre annuel officiel à 0,1 point près. Les
     années sans données trimestrielles (IE, DE avant 2002) reprennent le
     chiffre annuel (gov_10dd_edpt1).
+
+Maturité résiduelle moyenne des titres de dette publique (BCE, mensuelle, depuis 2008).
+Notes de Moody's (dette à long terme en devises), historique repris de countryeconomy.com.
 
 Budget de la France (annuel, millions d'euros ; recettes : gov_10a_main, dépenses par
 fonction : gov_10a_exp) : recettes et dépenses de l'État et des organismes centraux (S1311), des collectivités locales
@@ -34,6 +38,7 @@ bibliothèque standard Python.
 import csv
 import io
 import json
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -58,6 +63,11 @@ ECB_URL = (
     "https://data-api.ecb.europa.eu/service/data/IRS/"
     "M.{code}.L.L40.CI.0000.EUR.N.Z?format=csvdata&startPeriod=" + START
 )
+# Maturité résiduelle moyenne des titres de dette publique, en années
+MATURITY_URL = (
+    "https://data-api.ecb.europa.eu/service/data/GFS/"
+    "M.N.{code}.W0.S13.S1.N.L.LE.F3.TT._Z.YR._T.F.V.A1._T?format=csvdata"
+)
 CNBC_URL = "https://ts-api.cnbc.com/harmony/app/charts/1Y.json?symbol={code}10Y-{code}"
 TV_URL = "https://scanner.tradingview.com/global/scan"
 EUROSTAT_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}"
@@ -69,6 +79,12 @@ HIST_START, HIST_END = 1949, 1999
 IMF_URL = "https://www.imf.org/external/datamapper/api/v1/{indicator}"
 GMD_URL = "https://www.globalmacrodata.com/GMD.csv"
 ISO3 = {"GR": "GRC", "IT": "ITA", "ES": "ESP", "PT": "PRT", "IE": "IRL", "FR": "FRA", "DE": "DEU"}
+# Notes de Moody's : historique complet (depuis les années 1980) sur countryeconomy.com
+RATING_URL = "https://countryeconomy.com/ratings/{slug}"
+RATING_SLUG = {"GR": "greece", "IT": "italy", "ES": "spain", "PT": "portugal", "IE": "ireland", "FR": "france", "DE": "germany"}
+RATING_SCALE = ["C", "Ca", "Caa3", "Caa2", "Caa1", "B3", "B2", "B1", "Ba3", "Ba2", "Ba1",
+                "Baa3", "Baa2", "Baa1", "A3", "A2", "A1", "Aa3", "Aa2", "Aa1", "Aaa"]   # 1 = C … 21 = Aaa
+OUTLOOK = {"Stable": "stable", "Negative": "négative", "Positive": "positive", "Under Review": "sous surveillance"}
 OUTPUT_BUDGET = ROOT / "data" / "budget.js"
 BUDGET_START = "2005"
 
@@ -142,6 +158,31 @@ def fetch_ecb(code):
         for row in csv.DictReader(io.StringIO(http(ECB_URL.format(code=code))))
         if row["OBS_VALUE"]
     }
+
+
+def fetch_maturity(code):
+    """{'AAAA-MM': années} — maturité résiduelle moyenne des titres de dette publique."""
+    return {
+        row["TIME_PERIOD"]: float(row["OBS_VALUE"])
+        for row in csv.DictReader(io.StringIO(http(MATURITY_URL.format(code=code))))
+        if row["OBS_VALUE"]
+    }
+
+
+def fetch_ratings(code):
+    """[('AAAA-MM-JJ', note ou None, perspective ou None)] : changements de note de Moody's, du plus ancien
+    au plus récent (première table de la page : long terme, en devises ; une ligne peut ne changer que la
+    perspective). Les notes à court terme parfois mêlées à la table (P-1, NP) sont ignorées."""
+    page = http(RATING_URL.format(slug=RATING_SLUG[code]), timeout=30)
+    body = re.search(r'id="tb0_\d+".*?<tbody>(.*?)</tbody>', page, re.S).group(1)
+    out = []
+    for day, cell in re.findall(r"<tr><td>(\d{4}-\d\d-\d\d)</td><td>([^<]*)</td>", body):
+        m = re.fullmatch(r"\s*([^\s(]+)?\s*(?:\((.*)\))?\s*", cell)
+        rating, outlook = m.group(1), m.group(2)
+        rating = rating if rating in RATING_SCALE else None
+        if rating or outlook in OUTLOOK:
+            out.append((day, rating, OUTLOOK.get(outlook)))
+    return sorted(out)
 
 
 def fetch_cnbc_daily(code):
@@ -244,6 +285,16 @@ def download():
     data["real_q"] = fetch_eurostat("namq_10_gdp", "1998-Q1", na_item="B1GQ", unit="CLV10_MEUR", s_adj="NSA")
     data["interest_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q1", na_item="D41PAY", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["debt_eur"] = fetch_eurostat("gov_10q_ggdebt", "1999-Q1", na_item="GD", sector="S13", unit="MIO_EUR")
+    data["interest_a"] = fetch_eurostat("gov_10a_main", "2000", na_item="D41PAY", sector="S13", unit="PC_GDP")
+    print("  BCE : maturité moyenne de la dette…", flush=True)
+    data["maturity"] = {code: fetch_maturity(code) for code in COUNTRIES}
+    print("  Moody's : notes…", flush=True)
+    try:
+        data["ratings"] = {code: fetch_ratings(code) for code in COUNTRIES}
+    except Exception as exc:   # site tiers : en cas d'échec, notes du cache
+        print(f"    indisponible ({exc})")
+        if CACHE.exists():
+            data["ratings"] = json.loads(CACHE.read_text()).get("ratings", {})
     print("  FMI et Global Macro Database : historique depuis 1950…", flush=True)
     try:
         data["hist"] = fetch_history()
@@ -387,6 +438,46 @@ def growth_vs_rate(data):
     return {"growth": growth, "real": real, "rate": rate}
 
 
+def interest_burden(data):
+    """{'XX': {q: intérêts versés en % du PIB}} sur 4 trimestres glissants ; avant 2000 et pour les années sans
+    données trimestrielles (IE, DE avant 2002), chiffre annuel (FMI, puis Eurostat) placé au 4e trimestre."""
+    out = {}
+    for c in COUNTRIES:
+        d41, gdp = data.get("interest_q", {}).get(c, {}), data.get("gdp_q", {}).get(c, {})
+        out[c] = {q: 100 * paid / total for q in d41
+                  if q >= "2000-Q1" and (paid := sum4(d41, q)) is not None and (total := sum4(gdp, q))}
+        for y, v in data.get("interest_a", {}).get(c, {}).items():
+            if not any(q.startswith(y) for q in out[c]):
+                out[c][f"{y}-Q4"] = v
+        for y, v in data.get("hist", {}).get("ie", {}).get(c, {}).items():
+            if "1950" <= y <= str(HIST_END):
+                out[c][f"{y}-Q4"] = v
+    return out
+
+
+def monthly_ratings(data, months):
+    """Note de Moody's (1 = C … 21 = Aaa) et perspective en vigueur à la fin de chaque mois :
+    {'rating': {'XX': [score]}, 'outlook': {'XX': [perspective]}}."""
+    today = date.today().isoformat()
+    rating, outlook = {}, {}
+    for c in COUNTRIES:
+        changes = data.get("ratings", {}).get(c, [])
+        rating[c], outlook[c] = [], []
+        for m in months:
+            end = min(f"{m}-31", today)
+            r = o = None
+            for day, nr, no in changes:
+                if day > end:
+                    break
+                if nr:
+                    r, o = nr, None   # nouvelle note : perspective éventuellement donnée sur la même ligne
+                if no:
+                    o = no
+            rating[c].append(RATING_SCALE.index(r) + 1 if r else None)
+            outlook[c].append(o)
+    return {"rating": rating, "outlook": outlook, "scale": RATING_SCALE}
+
+
 def budget(data):
     """Par année : pour chaque sous-secteur, recettes propres par poste et dépenses propres par fonction
     (hors transferts entre administrations), cotisations retraite imputées de chaque fonction,
@@ -449,6 +540,9 @@ def main():
         "growth": public_finances((gr := growth_vs_rate(data))["growth"]),
         "real": public_finances(gr["real"]),
         "interest": public_finances(gr["rate"]),
+        "burden": public_finances(interest_burden(data)),
+        "maturity": public_finances(data.get("maturity", {})),
+        "ratings": monthly_ratings(data, months),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
@@ -466,7 +560,7 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "real", "interest"):
+    for key in ("debt", "deficit", "growth", "real", "interest", "burden", "maturity"):
         if periods := payload[key]["periods"]:
             print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:

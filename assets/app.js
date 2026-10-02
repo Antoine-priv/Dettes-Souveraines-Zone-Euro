@@ -39,6 +39,10 @@ const windowLabel = q => {
 };
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
+// Notes de Moody's : 1 = C … 21 = Aaa ; sous Baa3 (11), catégorie spéculative
+const SCALE = DATA.ratings.scale, SPECULATIVE = 10.5;
+// courbes légèrement décalées pour que les pays de même note restent visibles côte à côte
+const RATING_OFFSET = c => (ALL_CODES.indexOf(c) - 3) * 0.06;
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
@@ -47,6 +51,14 @@ const PANELS = [
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
   { key: "rate", title: "Taux 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
+  { key: "rating", title: "Note de Moody's (dette à long terme)", codes: ALL_CODES, zero: SPECULATIVE, step: true,
+    x: months.map(monthDate), y: c => DATA.ratings.rating[c],
+    plotY: c => DATA.ratings.rating[c].map(v => v == null ? null : v + RATING_OFFSET(c)),
+    yaxis: { tickvals: SCALE.map((_, i) => i + 1), ticktext: SCALE },
+    text: (v, c, i) => {
+      const notes = [DATA.ratings.outlook[c][i] && `perspective ${DATA.ratings.outlook[c][i]}`, v < SPECULATIVE && "catégorie spéculative"].filter(Boolean);
+      return SCALE[v - 1] + (notes.length ? ` <span class="muted">(${notes.join(", ")})</span>` : "");
+    } },
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
@@ -54,6 +66,10 @@ const PANELS = [
     connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(windowMid), y: c => DATA.deficit.series[c], date: i => windowLabel(DATA.deficit.periods[i]),
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
+  { key: "burden", title: "Charge d'intérêts (% du PIB)", codes: ALL_CODES, zero: true, connectgaps: true,
+    x: DATA.burden.periods.map(windowMid), y: c => DATA.burden.series[c], date: i => windowLabel(DATA.burden.periods[i]), text: pctGDP },
+  { key: "maturity", title: "Maturité moyenne des titres de dette (années)", codes: ALL_CODES,
+    x: DATA.maturity.periods.map(monthDate), y: c => DATA.maturity.series[c], text: v => `${v.toFixed(1).replace(".", ",")} ans` },
   // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
   { key: "growth", title: "Inflation + croissance et taux moyen de la dette (%)", codes: ALL_CODES, zero: true, single: true,
     x: DATA.growth.periods.map(windowMid), y: c => growth[c], date: i => windowLabel(DATA.growth.periods[i]),
@@ -82,8 +98,8 @@ function traces(panel, code) {
   return {
     name: DATA.names[code], legendgroup: code, xaxis: "x" + panel.n, yaxis: "y" + panel.n,
     showlegend: false, visible: state.hidden.has(code) ? "legendonly" : true,
-    type: "scatter", mode: "lines", x: panel.x, y: panel.y(code),
-    line: { color: COLOR(code), width: 2 }, connectgaps: !!panel.connectgaps,
+    type: "scatter", mode: "lines", x: panel.x, y: (panel.plotY || panel.y)(code),
+    line: { color: COLOR(code), width: 2, ...(panel.step && { shape: "hv" }) }, connectgaps: !!panel.connectgaps,
   };
 }
 
@@ -101,14 +117,33 @@ function singleTraces(panel) {
 const buildTraces = () => shown.flatMap(panel => panel.single ? singleTraces(panel) : panel.codes.map(c => traces(panel, c)));
 
 // ---- Mise en page ---------------------------------------------------------------
-// [date, libellé, explication affichée au survol du libellé : effet sur les graphiques et raisons]
+// [date, libellé, explication affichée au survol du libellé : effet sur les graphiques et raisons, pays éventuel]
+// Un événement propre à un pays n'est affiché que si ce pays l'est (légende), dans sa couleur.
 const EVENTS = [
+  ["1999-01-01", "Euro", "Naissance de l'euro dans onze pays, dont la France, l'Allemagne, l'Italie, l'Espagne, le Portugal et l'Irlande. " +
+    "Effet : les taux des pays du Sud convergent vers ceux de l'Allemagne (plus de risque de dévaluation) et leur charge d'intérêts baisse ; " +
+    "les spreads restent presque nuls jusqu'en 2008, comme si toutes les dettes se valaient."],
+  ["2001-01-01", "La Grèce dans l'euro", "La Grèce rejoint l'euro deux ans après les autres, sur la foi de chiffres de déficit " +
+    "dont on apprendra en 2009 qu'ils étaient faux. Effet : son taux 10 ans s'aligne presque sur celui de l'Allemagne " +
+    "et sa charge d'intérêts baisse, ce qui facilite l'endettement.", "GR"],
   ["2008-09-15", "Lehman", "Faillite de la banque Lehman Brothers : la crise financière américaine devient mondiale. " +
     "Effet : récession en 2009 (croissance négative), déficits qui se creusent et dette qui bondit partout ; " +
     "les investisseurs se réfugient sur la dette allemande et les spreads commencent à s'écarter."],
   ["2010-05-02", "1er plan grec", "Premier prêt de l'Union européenne et du FMI à la Grèce (110 Md€), qui avait caché l'ampleur de son déficit. " +
     "Effet : les marchés doutent de la solvabilité des pays fragiles ; les spreads de la Grèce, puis de l'Irlande, du Portugal, " +
     "de l'Espagne et de l'Italie s'envolent jusqu'en 2012."],
+  ["2010-11-28", "Plan irlandais", "L'Irlande, qui a garanti toutes les dettes de ses banques ruinées par l'éclatement de sa bulle immobilière, " +
+    "doit demander l'aide de l'Union européenne et du FMI (85 Md€). Effet : le déficit de 2010 dépasse 30 % du PIB (sauvetage des banques), " +
+    "la dette bondit et la note s'effondre ; le spread irlandais culmine à l'été 2011.", "IE"],
+  ["2011-05-05", "Plan portugais", "Le Portugal, faible croissance et dette en hausse, ne peut plus emprunter à des taux supportables " +
+    "et obtient 78 Md€ de l'Union européenne et du FMI, en échange d'un programme d'austérité. Effet : le spread portugais monte " +
+    "jusqu'en janvier 2012 et la note passe en catégorie spéculative ; récession en 2011-2012.", "PT"],
+  ["2012-03-09", "Restructuration grecque", "Les créanciers privés de la Grèce acceptent d'effacer plus de la moitié de leurs créances " +
+    "(environ 107 Md€), avec un 2e plan d'aide européen. Effet : c'est un défaut (note au plus bas) ; la dette grecque baisse d'un coup en 2012, " +
+    "et le taux 10 ans grec, au-dessus de 30 % juste avant, commence à refluer.", "GR"],
+  ["2012-06-09", "Sauvetage des banques espagnoles", "L'Espagne obtient jusqu'à 100 Md€ de prêts européens pour recapitaliser " +
+    "ses caisses d'épargne, ruinées par l'éclatement de sa bulle immobilière. Effet : le taux 10 ans espagnol dépasse 7 % en juillet ; " +
+    "le déficit de 2012 dépasse 10 % du PIB et la dette, encore à 36 % en 2007, grimpe vers 100 %.", "ES"],
   ["2012-07-26", "Whatever it takes", "Mario Draghi promet que la BCE fera « tout ce qu'il faudra » pour sauver l'euro (rachats illimités de dette " +
     "des pays en difficulté, programme OMT). Effet : sans même être utilisée, la promesse suffit ; les spreads refluent et les taux baissent pendant des années."],
   ["2020-03-18", "Covid", "Confinements et arrêt d'une partie de l'économie. Effet : récession de 2020, déficits records pour soutenir " +
@@ -116,7 +151,14 @@ const EVENTS = [
   ["2022-07-21", "Hausse des taux BCE", "Face à une inflation proche de 10 %, la BCE relève ses taux pour la première fois depuis 2011 " +
     "(de −0,5 % à 4 % en un an). Effet : les taux 10 ans montent ; le taux moyen de la dette ne suit que lentement, " +
     "au fil des renouvellements, alors que l'inflation gonfle le PIB nominal : la dette fond temporairement."],
+  ["2015-07-05", "Référendum grec", "Le gouvernement Syriza d'Alexis Tsipras refuse les conditions des créanciers et les soumet à référendum : " +
+    "61 % de « non ». Les banques sont fermées, la sortie de l'euro est envisagée. Effet : le spread grec repart à la hausse ; " +
+    "une semaine plus tard, Tsipras accepte un 3e plan d'aide, plus dur encore.", "GR"],
+  ["2018-06-01", "Gouvernement Ligue-M5S", "Arrivée au pouvoir en Italie d'une coalition populiste (Ligue et Mouvement 5 étoiles) " +
+    "qui a envisagé de sortir de l'euro et prévoit plus de déficit. Effet : le spread italien double en quelques semaines " +
+    "(de 1,3 à plus de 3 points à l'automne) ; Moody's abaisse la note en octobre.", "IT"],
 ];
+const visibleEvents = () => EVENTS.filter(e => !e[3] || !state.hidden.has(e[3]));
 // Événements historiques du panneau à un seul pays (selon le pays choisi), libellés sur ce panneau
 const HISTORY = c => [
   ...(c === "FR" ? [["1945-06-01", "Début des Trente Glorieuses", "Reconstruction puis modernisation de la France, jusqu'au choc pétrolier de 1973. " +
@@ -137,7 +179,7 @@ const HISTORY = c => [
 // Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
 const TITLE_H = 44, AXIS_H = 40;
 function geometry() {
-  const plotH = Math.max(320, Math.round(innerHeight * 0.42));
+  const plotH = Math.min(500, Math.max(320, Math.round(innerHeight * 0.42)));
   let y = 0;
   const blocks = state.order.map(key => {
     const b = { key, top: y };
@@ -154,14 +196,14 @@ function baseLayout(geo) {
   const axisCommon = {
     gridcolor: grid, linecolor: grid, tickfont: { color: ink }, zeroline: false,
   };
-  const eventLine = (d, xref, yref) => ({
+  const eventLine = (d, xref, yref, c) => ({
     type: "line", xref, yref, x0: d, x1: d, y0: 0, y1: 1,
-    line: { color: css("--zero"), width: 1, dash: "dot" }, layer: "below",
+    line: { color: c ? COLOR(c) : css("--zero"), width: 1, dash: "dot" }, layer: "below",
   });
   const shapes = [
-    ...shown.flatMap(p => EVENTS.map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
+    ...shown.flatMap(p => visibleEvents().map(([d, , , c]) => eventLine(d, "x" + p.n, `y${p.n} domain`, c))),
     ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
-    ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
+    ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: p.zero === true ? 0 : p.zero, y1: p.zero === true ? 0 : p.zero, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
   const frac = px => 1 - px / geo.height;
@@ -170,7 +212,7 @@ function baseLayout(geo) {
     const b = geo.blocks.find(b => b.key === p.key);
     axes["xaxis" + p.n] = { ...axisCommon, domain: [0, 1], anchor: "y" + p.n, type: "date",
       rangeslider: { visible: false }, ...(p.n && { matches: "x" }) };
-    axes["yaxis" + p.n] = { ...yCommon, domain: [frac(b.plotBottom), frac(b.plotTop)] };
+    axes["yaxis" + p.n] = { ...yCommon, ...p.yaxis, domain: [frac(b.plotBottom), frac(b.plotTop)] };
   }
   if (!shown.length) axes.xaxis = axes.yaxis = { visible: false };   // tout est replié
   return {
@@ -360,12 +402,12 @@ function paintEvents(range) {
   const toPx = d => s.l + (Date.parse(d) - r0) / (r1 - r0) * s.w;
   const geo = titles.geo, html = [];
   shown.forEach((p, k) => {
-    const list = [...(k === 0 ? EVENTS : []), ...(p.single ? HISTORY(state.pick) : [])]
+    const list = [...(k === 0 ? visibleEvents() : []), ...(p.single ? HISTORY(state.pick) : [])]
       .map(e => ({ e, x: toPx(e[0]) })).filter(o => o.x >= s.l && o.x < s.l + s.w).sort((a, b) => a.x - b.x);
     const top = geo.blocks.find(b => b.key === p.key).plotTop + 2;
     list.forEach((o, j) => {
       const width = (j + 1 < list.length ? list[j + 1].x - 6 : s.l + s.w) - o.x - 3;
-      if (width > 14) html.push(`<div class="evlabel" data-d="${o.e[0]}" style="left:${o.x + 3}px;top:${top}px;max-width:${width}px">${o.e[1]}</div>`);
+      if (width > 14) html.push(`<div class="evlabel" data-d="${o.e[0]}" style="left:${o.x + 3}px;top:${top}px;max-width:${width}px${o.e[3] ? `;color:${COLOR(o.e[3])}` : ""}">${o.e[1]}</div>`);
     });
   });
   evLayer.innerHTML = html.join("");
@@ -399,7 +441,7 @@ function paintLegend() {
 }
 function applyHidden() {
   paintLegend();
-  return Plotly.restyle(chart, { visible: chart.data.map(t => state.hidden.has(t.legendgroup) ? "legendonly" : true) });
+  return render();   // pas un simple restyle : les repères propres à un pays apparaissent ou disparaissent avec lui
 }
 let clickTimer = null;
 legend.addEventListener("click", ev => {
@@ -478,7 +520,7 @@ function showHover(ev, hit) {
   const rows = panel.codes.filter(c => !state.hidden.has(c))
     .map(c => ({ c, v: panel.y(c)[i] })).filter(r => r.v != null).sort((a, b) => b.v - a.v);
   tip.innerHTML = `<div class="date">${panel.date ? panel.date(i) : monthYear.format(panel.stamps[i])}</div>` + rows.map(({ c, v }) =>
-    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v)}</b></div>`).join("");
+    `<div><span class="sw" style="background:${COLOR(c)}"></span>${DATA.names[c]} <b>${panel.text(v, c, i)}</b></div>`).join("");
   // une seule courbe : ligne horizontale à sa valeur (si elle est dans la zone visible)
   const ya = fl[hit.axis], y = rows.length === 1 ? ya._offset + ya.l2p(rows[0].v) : NaN;
   const d = ya.domain, inside = y >= s.t + (1 - d[1]) * s.h && y <= s.t + (1 - d[0]) * s.h;
@@ -598,5 +640,6 @@ const endDrag = () => { dragKey = null; dropLine.hidden = true; };
 document.addEventListener("dragend", endDrag);
 stage.addEventListener("dragleave", ev => { if (!stage.contains(ev.relatedTarget)) dropLine.hidden = true; });
 
+document.getElementById("updated").textContent = DATA.fetched.slice(0, 10);
 paintLegend();
 render().then(() => { attachPlotlyEvents(); showDefault(); });
