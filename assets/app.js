@@ -51,7 +51,7 @@ const PANELS = [
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
   { key: "deficit", title: "Déficit public (% du PIB)", codes: ALL_CODES, zero: true,
-    connectgaps: true,   // avant 2000 (et IE, DE avant 2002) : un point annuel par an
+    connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
     x: DATA.deficit.periods.map(windowMid), y: c => DATA.deficit.series[c], date: i => windowLabel(DATA.deficit.periods[i]),
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
   // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
