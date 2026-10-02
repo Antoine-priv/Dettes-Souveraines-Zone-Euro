@@ -99,6 +99,11 @@ const EVENTS = [
   ["2020-03-18", "Covid"],
   ["2022-07-21", "Hausse des taux BCE"],
 ];
+// Événements historiques du panneau à un seul pays (selon le pays choisi), libellés sur ce panneau
+const HISTORY = c => [
+  ...(c === "FR" ? [["1945-06-01", "Début des Trente Glorieuses"]] : []),
+  ["1973-10-16", c === "FR" ? "1er choc pétrolier, fin des Trente Glorieuses" : "1er choc pétrolier"],
+];
 
 // Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
 const TITLE_H = 44, AXIS_H = 40;
@@ -126,13 +131,18 @@ function baseLayout(geo) {
   });
   const shapes = [
     ...shown.flatMap(p => EVENTS.map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
+    ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
     ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
   // libellés des événements : premier graphique affiché seulement
-  const annotations = shown.length ? EVENTS.map(([d, t]) => ({
-    x: d, xref: "x", y: 1, yref: "y domain", yanchor: "top", xanchor: "left", xshift: 3, text: t, showarrow: false,
+  const label = (d, t, n) => ({
+    x: d, xref: "x" + n, y: 1, yref: `y${n} domain`, yanchor: "top", xanchor: "left", xshift: 3, text: t, showarrow: false,
     font: { size: 11, color: css("--text-muted") },
-  })) : [];
+  });
+  const annotations = [
+    ...(shown.length ? EVENTS.map(([d, t]) => label(d, t, "")) : []),
+    ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d, t]) => label(d, t, p.n))),
+  ];
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
   const frac = px => 1 - px / geo.height;
   const axes = {};
