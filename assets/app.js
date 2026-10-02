@@ -379,7 +379,8 @@ function attachPlotlyEvents() {
 
 // ---- Libellés des événements (HTML) ------------------------------------------------
 // Sur une seule ligne en haut du tracé ; un libellé trop proche du suivant est coupé (…).
-// Premier graphique affiché : événements récents ; panneau à un seul pays : événements historiques aussi.
+// Événements généraux sur tous les graphiques, ceux propres à un pays sur le premier seulement ;
+// panneau à un seul pays : événements historiques aussi.
 const evLayer = document.getElementById("events");
 const evTip = document.getElementById("evtip");
 function paintEvents(range) {
@@ -388,7 +389,7 @@ function paintEvents(range) {
   const toPx = d => s.l + (Date.parse(d) - r0) / (r1 - r0) * s.w;
   const geo = titles.geo, html = [];
   shown.forEach((p, k) => {
-    const list = [...(k === 0 ? visibleEvents() : []), ...(p.single ? HISTORY(state.pick) : [])]
+    const list = [...(k === 0 ? visibleEvents() : EVENTS.filter(e => !e[3])), ...(p.single ? HISTORY(state.pick) : [])]
       .map(e => ({ e, x: toPx(e[0]) })).filter(o => o.x >= s.l && o.x < s.l + s.w).sort((a, b) => a.x - b.x);
     const top = geo.blocks.find(b => b.key === p.key).plotTop + 2;
     list.forEach((o, j) => {
