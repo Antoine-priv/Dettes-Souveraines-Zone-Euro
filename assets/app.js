@@ -29,6 +29,14 @@ const align = d => Object.fromEntries(ALL_CODES.map(c => [c, DATA.growth.periods
 })]));
 const real = align(DATA.real);   // croissance en volume ; inflation (prix du PIB) = nominale − réelle
 const inflation = Object.fromEntries(ALL_CODES.map(c => [c, growth[c].map((g, i) => g == null || real[c][i] == null ? null : +(g - real[c][i]).toFixed(2))]));
+// Valeurs sur 4 trimestres glissants (ou annuelles avant 2000, rangées au 4e trimestre) : placées au milieu
+// de leur période, pour que le chiffre de 1980 soit dessiné (et lu au survol) en 1980 et non fin 1980.
+const windowMid = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n - 6, 1)).toISOString().slice(0, 10); };
+const MOIS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+const windowLabel = q => {
+  const [y, n] = q.split("-Q").map(Number);
+  return n === 4 ? `année ${y}` : `${MOIS[3 * n % 12]} ${y - 1} → ${MOIS[3 * n - 1]} ${y}`;
+};
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
@@ -47,7 +55,7 @@ const PANELS = [
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
   // un seul pays à la fois (state.pick, choisi à droite du titre), indépendamment de la légende
   { key: "growth", title: "Inflation + croissance et taux moyen de la dette (%)", codes: ALL_CODES, zero: true, single: true,
-    x: DATA.growth.periods.map(quarterEnd), y: c => growth[c],
+    x: DATA.growth.periods.map(windowMid), y: c => growth[c], date: i => windowLabel(DATA.growth.periods[i]),
     tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
       ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", "Taux moyen de la dette", interest[c][i], "dash"]]
       .map(([v, l, x, dash]) => `<div><span class="sw${dash ? " dash" : ""}" style="background:${css(v)}"></span>${l} <b>${pct(x)}</b></div>`).join("") },
@@ -405,7 +413,7 @@ function showHover(ev, hit) {
   const panel = shown.find(p => "yaxis" + p.n === hit.axis);
   const i = nearest(panel.stamps, t);
   if (panel.single) {
-    tip.innerHTML = `<div class="date">${monthYear.format(panel.stamps[i])} · ${DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
+    tip.innerHTML = `<div class="date">${panel.date(i)} · ${DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
     hline.hidden = true;
     return placeTip(px, py, s, r);
   }
