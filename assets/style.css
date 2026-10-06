@@ -110,6 +110,11 @@ footer { margin: 8px 0 24px; padding-left: 16px; font-size: 12px; color: var(--t
 #evtip p { margin: 6px 0 0; }
 #evtip b { font-weight: 600; }
 #evtip[hidden] { display: none; }
+#evtip.info { max-width: 480px; }
+#evtip .f {   /* formule */
+  margin: 6px 0 0; padding: 3px 8px; border-radius: 4px; background: var(--btn-bg);
+  font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", Georgia, serif; font-size: 14px;
+}
 .picks { position: absolute; right: 56px; display: flex; gap: 6px; pointer-events: auto; }
 #tip .sw.dash { background: none !important; border-top: 2px dotted var(--text-primary); height: 0; }
 #dropline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--text-secondary); pointer-events: none; }

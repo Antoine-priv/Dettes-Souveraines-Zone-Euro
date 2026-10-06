@@ -194,6 +194,80 @@ const deficitPanel = {
   },
 };
 
+// Explications affichées au survol d'un titre : ce que montre le graphique, formules, ce qu'il faut y observer
+const explain = (what, formulas, watch) => `<div>${what}</div>` + formulas.map(f => `<div class="f">${f}</div>`).join("") +
+  `<p><b>À observer :</b> ${watch}</p>`;
+const SNOWBALL = "Δd ≈ (r − g) / (1 + g) × d<sub>t−1</sub> + déficit primaire";
+const INFO = {
+  spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
+    "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
+    ["écart = taux 10 ans du pays − taux 10 ans allemand", "1 point de % = 100 points de base (pb)"],
+    "presque nul de 1999 à 2008, comme si toutes les dettes se valaient ; envolée de 2010 à 2012 (Grèce jusqu'à 27 points, " +
+    "Portugal 12, Irlande près de 10, Espagne et Italie plus de 5) ; reflux après « Whatever it takes » puis avec le QE ; " +
+    "poussée italienne en 2018 ; depuis 2024, la France s'écarte de l'Allemagne avec l'instabilité politique et budgétaire, " +
+    "jusqu'à rejoindre l'Italie."),
+  rate: explain("Taux auquel l'État emprunte aujourd'hui pour 10 ans sur les marchés. Il ne s'applique qu'aux nouveaux emprunts : " +
+    "le coût moyen de toute la dette (graphique « taux moyen ») ne le suit que lentement, au fil des renouvellements.",
+    ["taux 10 ans ≈ taux courts attendus sur 10 ans (politique de la BCE) + prime de terme + prime de risque du pays"],
+    "la longue baisse de 2000 à 2020 (inflation faible, taux de la BCE jusqu'à −0,5 %, QE), jusqu'à des taux négatifs en " +
+    "Allemagne dès 2016 et brièvement en France en 2019-2020 : les investisseurs payaient pour prêter ; puis la remontée brutale " +
+    "de 2022 avec l'inflation et la hausse des taux de la BCE."),
+  debt: explain("Dette brute de toutes les administrations publiques (État, collectivités locales, sécurité sociale), au sens " +
+    "de Maastricht, en fin de trimestre, rapportée au PIB des 4 derniers trimestres. Avant 2000 : chiffres annuels (FMI).",
+    [SNOWBALL, "d : dette en % du PIB ; r : taux moyen de la dette ; g : croissance nominale du PIB"],
+    "la dette héritée de la guerre fond pendant les Trente Glorieuses (France : 40 % du PIB en 1950, 15 % en 1974) car r < g ; " +
+    "elle remonte dans les années 1980-1990 (taux réels élevés, r > g) ; chaque crise (2009, 2020) la fait monter d'une marche " +
+    "qui ne redescend guère ; restructuration grecque en 2012 ; Irlande : de 101 % à 74 % du PIB en 2015, surtout à cause du " +
+    "bond du PIB (bénéfices des multinationales), pas d'un remboursement ; Allemagne : baisse de 2012 à 2019 grâce aux excédents et à r < g."),
+  deficit: explain("Ce que les administrations publiques dépensent de plus qu'elles ne perçoivent sur un an, en % du PIB " +
+    "(4 trimestres glissants ; annuel avant 2000, FMI). Le déficit primaire exclut les intérêts : c'est la partie qui " +
+    "dépend des choix budgétaires de l'année.",
+    ["déficit = déficit primaire + intérêts", "déficit primaire = dépenses hors intérêts − recettes",
+      "déficit primaire qui stabilise la dette = (g − r) / (1 + g) × d"],
+    "si r > g, il faut un excédent primaire pour que la dette cesse de monter en % du PIB ; l'Italie dégage un excédent " +
+    "primaire presque chaque année de 1992 à 2019 : son déficit vient des intérêts ; récessions de 2009 et 2020 : les recettes chutent et " +
+    "les plans de soutien gonflent le déficit primaire ; Irlande en 2010 : plus de 30 % du PIB avec le sauvetage des banques ; " +
+    "Grèce : excédents primaires exigés par les plans d'aide après 2015 ; la règle européenne fixe le déficit à 3 % du PIB au plus."),
+  qe: explain("Part de la dette de chaque État achetée par l'Eurosystème (BCE et banques centrales nationales) avec ses " +
+    "programmes de rachat : PSPP depuis 2015 (QE) et PEPP depuis 2020 (Covid). La banque centrale achète ces titres aux banques " +
+    "et aux investisseurs en créant de la monnaie (des réserves) ; avec le QT, elle ne réinvestit plus les titres arrivés à " +
+    "échéance : l'État les rembourse et cette monnaie disparaît.",
+    ["part = achats nets cumulés (PSPP + PEPP) / dette publique"],
+    "la montée de 2015 à 2018, le bond de 2020-2021 (pic au-delà de 40 % pour l'Allemagne en 2022), puis la baisse continue " +
+    "depuis 2023 (QT) : d'autres acheteurs doivent prendre le relais ; la Grèce, trop mal notée, n'est achetée qu'à partir de " +
+    "2020. Les intérêts versés aux banques centrales nationales reviennent en partie à l'État par leurs bénéfices, mais depuis " +
+    "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte. " +
+    "Montants au coût d'achat ; rachats de 2010-2012 (SMP) non compris."),
+  demand: explain("Le PIB mesure tout ce qui est produit dans le pays ; on le décompose ici par ses utilisations : consommation " +
+    "des ménages (C), investissement des entreprises, des ménages (logement) et de l'État (I, stocks compris), consommation " +
+    "publique, c'est-à-dire les services publics (G), et solde du commerce extérieur (X − M). Les importations sont retranchées " +
+    "car elles sont déjà comptées dans C, I et G mais produites ailleurs.",
+    ["Y = C + I + G + (X − M)", "croissance du PIB = (ΔC + ΔI + ΔG + Δ(X − M)) / Y<sub>t−1</sub>"],
+    "l'Allemagne vit d'excédents commerciaux depuis les années 2000 (jusqu'à 7 % du PIB) ; avant 2008, Grèce, Portugal et " +
+    "Espagne importaient bien plus qu'ils n'exportaient (Grèce : −11 % du PIB en 2008), puis la crise les a fait passer en " +
+    "excédent ; investissement espagnol à 30 % du PIB en 2007 (bulle immobilière) ; Irlande : exportations et importations " +
+    "énormes (147 % du PIB) dues aux multinationales ; la consommation publique monte depuis 1950. Avant 2000 : chiffres " +
+    "annuels (Global Macro Database), Y étant la somme des composantes."),
+  growth: explain("Croissance nominale du PIB (g, ligne pleine) décomposée en inflation (prix du PIB) et croissance réelle " +
+    "(volumes), comparée au taux moyen payé sur la dette publique (r, pointillés). Fond rouge : r > g, la dette fait boule de " +
+    "neige ; fond bleu : r < g, la croissance allège son poids.",
+    ["1 + g = (1 + croissance réelle) × (1 + inflation), soit g ≈ croissance réelle + inflation",
+      "r = intérêts versés sur un an / dette un an plus tôt", SNOWBALL],
+    "les Trente Glorieuses : croissance et inflation fortes, r bien plus bas, la dette fond ; les années 1980-1990 : la " +
+    "désinflation fait chuter g alors que r reste haut, la dette grossit d'elle-même ; de 2012 à 2021, r baisse lentement à " +
+    "mesure que la dette est renouvelée à taux bas ; en 2022-2023, l'inflation fait bondir g alors que r ne suit qu'avec retard " +
+    "(la dette française a une durée moyenne d'environ 8 ans)."),
+  growthAll: explain("Même croissance nominale (g), comparée cette fois au taux moyen de toute la dette de l'économie hors " +
+    "banques et assurances : administrations, entreprises non financières et ménages (r, depuis 2000).",
+    ["r = intérêts versés par les entreprises, les ménages et l'État / leurs titres de dette et crédits un an plus tôt",
+      "1 + g = (1 + croissance réelle) × (1 + inflation)"],
+    "ce taux suit les taux de la BCE bien plus vite que celui de l'État : beaucoup de crédits aux entreprises, et en Espagne " +
+    "et au Portugal la plupart des prêts immobiliers, sont à taux variable (indexés sur l'Euribor), alors que l'État emprunte " +
+    "à long terme et à taux fixe. Il plonge donc après 2012 (Espagne : 2,6 % contre 4,2 % pour l'État) et remonte plus vite " +
+    "en 2022-2023 (France : de 1,3 % à 2,9 % en deux ans, contre 1,8 % pour l'État). Intérêts hors services bancaires " +
+    "facturés (SIFIM) : un peu inférieurs à ce que facturent les banques."),
+};
+
 const PANELS = [
   { key: "spread", title: "Écart de taux d'emprunt d'État à 10 ans avec l'Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
@@ -209,7 +283,7 @@ const PANELS = [
   growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),
   growthPanel("growthAll", "Inflation + croissance et taux moyen de toute la dette : État, entreprises, ménages (%)",
     interestAll, "Taux moyen de toute la dette"),
-].map(panel => ({ ...panel, stamps: panel.x.map(Date.parse) }));
+].map(panel => ({ ...panel, info: INFO[panel.key], stamps: panel.x.map(Date.parse) }));
 const PANEL = Object.fromEntries(PANELS.map(p => [p.key, p]));
 
 // Ordre et repli mémorisés dans le navigateur
@@ -585,6 +659,7 @@ evLayer.addEventListener("mouseover", ev => {
   const e = [...EVENTS, ...HISTORY(state.pick)].find(e => e[0] === el.dataset.d);
   hideHover();
   evTip.innerHTML = `<div class="date">${e[1]}</div>${e[2].replace(" Effet : ", "<p><b>Effet :</b> ")}`;
+  evTip.classList.remove("info");
   evTip.hidden = false;
   const left = Math.min(el.offsetLeft, stage.clientWidth - evTip.offsetWidth - 8);
   Object.assign(evTip.style, { left: Math.max(0, left) + "px", top: el.offsetTop + el.offsetHeight + 4 + "px" });
@@ -764,7 +839,27 @@ function dropIndex(ev) {
   return bounds.reduce((best, b, i) => Math.abs(b - y) < Math.abs(bounds[best] - y) ? i : best, 0);
 }
 let dragKey = null;
+// Survol du titre (hors bouton −/+) : explication du graphique, dans la bulle des événements, sous le titre
+// (au-dessus s'il n'y a pas la place dans la fenêtre)
+titles.addEventListener("mouseover", ev => {
+  const ttl = ev.target.closest(".ttl");
+  if (!ttl || dragKey) return;
+  if (ev.target.closest(".fold")) { evTip.hidden = true; return; }
+  const t = ttl.closest(".ptitle"), panel = PANEL[t.dataset.key];
+  hideHover();
+  evTip.innerHTML = `<div class="date">${panel.title}</div>${panel.info}`;
+  evTip.classList.add("info");
+  evTip.hidden = false;
+  const below = t.offsetTop + t.offsetHeight + 4, above = t.offsetTop - evTip.offsetHeight - 4;
+  const fits = stage.getBoundingClientRect().top + below + evTip.offsetHeight <= innerHeight;
+  Object.assign(evTip.style, { left: t.offsetLeft + "px", top: (fits || above < 0 ? below : above) + "px" });
+});
+titles.addEventListener("mouseout", ev => {
+  const ttl = ev.target.closest(".ttl");
+  if (ttl && !ttl.contains(ev.relatedTarget)) evTip.hidden = true;
+});
 titles.addEventListener("dragstart", ev => {
+  evTip.hidden = true;
   dragKey = ev.target.closest(".ptitle")?.dataset.key;
   ev.dataTransfer.effectAllowed = "move";
   ev.dataTransfer.setData("text/plain", dragKey);
