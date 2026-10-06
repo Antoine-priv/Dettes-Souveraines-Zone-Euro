@@ -391,6 +391,13 @@ function scaleY(axis, range, f) {
   const c = (range[0] + range[1]) / 2, h = (range[1] - range[0]) / 2 * f;
   return Plotly.relayout(chart, { [axis + ".range"]: [c - h, c + h] });
 }
+// Axe du temps : bord droit fixe, la date saisie reste sous la souris (vers la droite = comprimer)
+function grabX(d, clientX) {
+  const s = chart._fullLayout._size;
+  const a = Math.min(0.98, Math.max(0.01, (clientX - chart.getBoundingClientRect().left - s.l) / s.w));   // position dans le tracé
+  const r1 = d.range[1];
+  return setX([r1 - (r1 - d.grab) / (1 - a), r1]);   // (grab − r0) / (r1 − r0) = a
+}
 function scaleX(range, f, anchor) {  // anchor : point fixe (ms)
   return setX([anchor - (anchor - range[0]) * f, anchor + (range[1] - anchor) * f]);
 }
@@ -405,7 +412,7 @@ chart.addEventListener("mousedown", ev => {
     drag = { ...hit, start: ev.clientY, range: chart._fullLayout[hit.axis].range.slice() };
   } else {
     const range = xa().range.map(xa().r2l);
-    drag = { kind: "x", start: ev.clientX, range, anchor: range[1] };   // ancré au bord droit
+    drag = { kind: "x", range, grab: pxToL(ev.clientX - chart.getBoundingClientRect().left) };   // date saisie
   }
 }, true);
 
@@ -419,7 +426,7 @@ window.addEventListener("mousemove", ev => {
   const d = drag;
   throttle(() => {
     if (d.kind === "y") scaleY(d.axis, d.range, Math.exp((ev.clientY - d.start) * 0.006));   // vers le bas = comprimer
-    else scaleX(d.range, Math.exp((ev.clientX - d.start) * 0.006), d.anchor);              // vers la droite = comprimer
+    else grabX(d, ev.clientX);
   });
 });
 window.addEventListener("mouseup", () => { drag = null; });
