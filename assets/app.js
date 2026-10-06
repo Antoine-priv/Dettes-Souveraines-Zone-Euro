@@ -695,34 +695,16 @@ function paintTitles(geo) {
   }).join("");
   titles.geo = geo;
 }
-// Repli en fondu : un cache couleur de fond recouvre le graphique (tracé + axe du temps) et devient opaque,
-// puis les autres graphiques se décalent d'un coup. Le dépliage, lui, est immédiat.
-const FADE_MS = 220;
-let animating = false;
-function makeCover(key, opacity) {
-  const b = geometry().blocks.find(b => b.key === key);
-  const cover = stage.appendChild(Object.assign(document.createElement("div"), { className: "cover" }));
-  Object.assign(cover.style, { top: b.plotTop + "px", height: b.bottom - b.plotTop + "px", opacity });
-  return cover;
-}
-const fade = (cover, from, to) =>
-  cover.animate([{ opacity: from }, { opacity: to }], { duration: FADE_MS, easing: "ease", fill: "forwards" }).finished;
+// Repli et dépliage immédiats, sans animation
+let busyFold = false;
 async function toggleFold(key) {
-  if (animating) return;
-  animating = true;
+  if (busyFold) return;
+  busyFold = true;
   hideHover();
-  if (state.folded.has(key)) {
-    state.folded.delete(key);   // dépliage : affichage immédiat, sans fondu
-    await render();
-  } else {
-    const cover = makeCover(key, 0);
-    await fade(cover, 0, 1);
-    state.folded.add(key);
-    await render();
-    cover.remove();
-  }
+  state.folded.has(key) ? state.folded.delete(key) : state.folded.add(key);
+  await render();
   savePanels();
-  animating = false;
+  busyFold = false;
 }
 titles.addEventListener("change", ev => {
   const key = ev.target.matches(".pick") ? "pick" : ev.target.matches(".unit") ? "unit" : null;
