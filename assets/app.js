@@ -267,7 +267,7 @@ const INFO = {
 
 const PANELS = [
   { key: "spread", title: "Écart de taux d'emprunt d'État à 10 ans avec l'Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
-    x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
+    x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt` },
   { key: "rate", title: "Taux d'emprunt d'État à 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
