@@ -20,6 +20,7 @@ Finances publiques (Eurostat, administrations publiques S13) :
   - PIB par la demande, Y = C + I + G + (X − M) : consommation des ménages, investissement (formation brute de
     capital), consommation publique, exportations et importations, en euros courants sur 4 trimestres glissants
     (namq_10_gdp) ; avant 2000, chiffres annuels depuis 1950 (Global Macro Database) ;
+  - déficit avant 2000 : chiffres annuels du FMI depuis 1950 (intérêts − solde primaire) ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
     saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
@@ -221,11 +222,11 @@ def fetch_france(dataset, items, by_cofog=False):
 
 
 def fetch_history():
-    """{'ie'|'d'|'ngdp'|'rgdp'|'C'|'I'|'G'|'X'|'M': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END
+    """{'ie'|'d'|'pb'|'ngdp'|'rgdp'|'C'|'I'|'G'|'X'|'M': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END
     (composantes du PIB en millions d'euros)."""
     years = {str(y) for y in range(HIST_START, HIST_END + 1)}
     out = {}
-    for key in ("ie", "d"):   # % du PIB
+    for key in ("ie", "d", "pb"):   # % du PIB (pb : solde primaire, hors intérêts)
         # le FMI refuse les navigateurs (403) mais accepte un client en ligne de commande
         values = json.loads(http(IMF_URL.format(indicator=key), headers={"User-Agent": "curl/8"}))["values"][key]
         out[key] = {c: {y: v for y, v in values.get(iso, {}).items() if y in years and v is not None} for c, iso in ISO3.items()}
@@ -368,7 +369,8 @@ def history_debt(data):
 
 
 def rolling_deficit(data):
-    """{'XX': {'AAAA-Qn': déficit en % du PIB sur les 4 trimestres finissant à Qn}} (déficit > 0)."""
+    """{'XX': {'AAAA-Qn': déficit en % du PIB sur les 4 trimestres finissant à Qn}} (déficit > 0) ; de 1950 à 1999,
+    déficit annuel du FMI (intérêts − solde primaire) placé au 4e trimestre."""
     out = {}
     for c in COUNTRIES:
         b9, gdp = data.get("balance_q", {}).get(c, {}), data.get("gdp_q", {}).get(c, {})
@@ -382,6 +384,10 @@ def rolling_deficit(data):
         for y, v in data.get("balance", {}).get(c, {}).items():
             if not any(q.startswith(y) for q in out[c]):
                 out[c][f"{y}-Q4"] = -v
+        hist = data.get("hist", {})
+        for y, pb in hist.get("pb", {}).get(c, {}).items():
+            if "1950" <= y <= str(HIST_END) and (ie := hist.get("ie", {}).get(c, {}).get(y)) is not None:
+                out[c][f"{y}-Q4"] = ie - pb
     return out
 
 

@@ -48,14 +48,28 @@ const hatch = v => ({ fillcolor: "rgba(0,0,0,0)", fillpattern: { shape: "/", fgc
 function growthPanel(key, title, rate, rateLabel) {
   return { key, title, rate, codes: ALL_CODES, zero: true, single: true, history: true, rg: true,
     x: DATA.growth.periods.map(windowMid), date: i => windowLabel(DATA.growth.periods[i]),
-    traces: c => [
-      area("--s2", inflation[c], "tozeroy"),
-      area("--s3", growth[c], "tonexty"),
-      { y: rate[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
-    ],
-    tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
+    // Inflation depuis zéro, croissance réelle empilée au-dessus (en dessous si elle est négative) jusqu'à la croissance
+    // nominale (ligne) ; parties négatives hachurées. Chaque partie négative ou positive a sa propre courbe, remplie
+    // jusqu'à la précédente (base invisible répétée) ; les bords sont tracés par les courbes de base.
+    traces: c => {
+      const inf = inflation[c], sum = (f, g) => inf.map((v, i) => v == null || real[c][i] == null ? null : +(f(v) + g(real[c][i])).toFixed(2));
+      const clip = (y, f) => y.map(v => v == null ? null : f(v, 0));
+      const none = { line: { width: 0 } };
+      return [
+        { ...area("--s2", clip(inf, Math.max), "tozeroy"), ...none },
+        { y: clip(inf, Math.min), fill: "tozeroy", ...hatch("--s2"), ...none },
+        { y: inf, line: { color: css("--s2"), width: 1.5 } },
+        { ...area("--s3", sum(v => v, r => Math.max(r, 0)), "tonexty"), ...none },
+        { y: inf, ...none },
+        { y: sum(v => v, r => Math.min(r, 0)), fill: "tonexty", ...hatch("--s3"), ...none },
+        { y: growth[c], line: { color: css("--text-primary"), width: 2 } },
+        { y: rate[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
+      ];
+    },
+    tip: (c, i) => [["--s2", inflation[c][i] < 0 ? "Inflation (baisse des prix)" : "Inflation", inflation[c][i]],
+      ["--s3", real[c][i] < 0 ? "Croissance (récession)" : "Croissance", real[c][i]],
       ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", rateLabel, rate[c][i], "dash"]]
-      .filter(r => r[2] != null).map(([v, l, x, dash]) => swatch(v, l, pct(x), dash ? " dash" : "")).join("") +
+      .filter(r => r[2] != null).map(([v, l, x, dash]) => x < 0 && v !== "--text-primary" ? hatched(v, l, pct(x)) : swatch(v, l, pct(x), dash ? " dash" : "")).join("") +
       (rate[c][i] == null || growth[c][i] == null ? "" : `<div class="muted">${rate[c][i] > growth[c][i]
         ? "r > g : les intérêts font grossir la dette plus vite que le PIB" : "r < g : la croissance allège le poids de la dette"}</div>`) };
 }
@@ -126,9 +140,9 @@ const demandPanel = {
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
-// Déficit public = déficit primaire + intérêts (% du PIB, 4 trimestres glissants, depuis 2000) : aire du déficit primaire
+// Déficit public = déficit primaire + intérêts (% du PIB, 4 trimestres glissants depuis 2000, annuels du FMI avant) : aire du déficit primaire
 // depuis zéro (hachurée vers le bas en cas d'excédent primaire), intérêts empilés au-dessus jusqu'au déficit total (ligne).
-// Seules les périodes connues sont tracées (IE et DE avant 2002 : un point annuel par an, reliés).
+// Seules les périodes connues sont tracées (avant 2000, et IE et DE avant 2002 : un point annuel par an, reliés).
 const DEFICIT = Object.fromEntries(ALL_CODES.map(c => [c, DATA.deficit.periods.map((q, i) => {
   const total = DATA.deficit.series[c][i], j = DATA.burden.periods.indexOf(q), interest = j < 0 ? null : DATA.burden.series[c][j];
   return total == null || interest == null ? null : { total, interest, primary: +(total - interest).toFixed(2) };
