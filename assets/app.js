@@ -201,7 +201,7 @@ const SNOWBALL = "Δd ≈ (r − g) / (1 + g) × d<sub>t−1</sub> + déficit pr
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
-    ["écart = taux 10 ans du pays − taux 10 ans allemand", "1 point de % = 100 points de base (pb)"],
+    ["écart = taux 10 ans du pays − taux 10 ans allemand"],
     "presque nul de 1999 à 2008, comme si toutes les dettes se valaient ; envolée de 2010 à 2012 (Grèce jusqu'à 27 points, " +
     "Portugal 12, Irlande près de 10, Espagne et Italie plus de 5) ; reflux après « Whatever it takes » puis avec le QE ; " +
     "poussée italienne en 2018 ; depuis 2024, la France s'écarte de l'Allemagne avec l'instabilité politique et budgétaire, " +
@@ -213,14 +213,14 @@ const INFO = {
     "Allemagne dès 2016 et brièvement en France en 2019-2020 : les investisseurs payaient pour prêter ; puis la remontée brutale " +
     "de 2022 avec l'inflation et la hausse des taux de la BCE."),
   debt: explain("Dette brute de toutes les administrations publiques (État, collectivités locales, sécurité sociale), au sens " +
-    "de Maastricht, en fin de trimestre, rapportée au PIB des 4 derniers trimestres. Avant 2000 : chiffres annuels (FMI).",
+    "de Maastricht, en fin de trimestre, rapportée au PIB des 4 derniers trimestres.",
     [SNOWBALL, "d : dette en % du PIB ; r : taux moyen de la dette ; g : croissance nominale du PIB"],
     "la dette héritée de la guerre fond pendant les Trente Glorieuses (France : 40 % du PIB en 1950, 15 % en 1974) car r < g ; " +
     "elle remonte dans les années 1980-1990 (taux réels élevés, r > g) ; chaque crise (2009, 2020) la fait monter d'une marche " +
     "qui ne redescend guère ; restructuration grecque en 2012 ; Irlande : de 101 % à 74 % du PIB en 2015, surtout à cause du " +
     "bond du PIB (bénéfices des multinationales), pas d'un remboursement ; Allemagne : baisse de 2012 à 2019 grâce aux excédents et à r < g."),
-  deficit: explain("Ce que les administrations publiques dépensent de plus qu'elles ne perçoivent sur un an, en % du PIB " +
-    "(4 trimestres glissants ; annuel avant 2000, FMI). Le déficit primaire exclut les intérêts : c'est la partie qui " +
+  deficit: explain("Ce que les administrations publiques dépensent de plus qu'elles ne perçoivent sur un an, en % du PIB. " +
+    "Le déficit primaire exclut les intérêts : c'est la partie qui " +
     "dépend des choix budgétaires de l'année.",
     ["déficit = déficit primaire + intérêts", "déficit primaire = dépenses hors intérêts − recettes",
       "déficit primaire qui stabilise la dette = (g − r) / (1 + g) × d"],
@@ -232,12 +232,11 @@ const INFO = {
     "programmes de rachat : PSPP depuis 2015 (QE) et PEPP depuis 2020 (Covid). La banque centrale achète ces titres aux banques " +
     "et aux investisseurs en créant de la monnaie (des réserves) ; avec le QT, elle ne réinvestit plus les titres arrivés à " +
     "échéance : l'État les rembourse et cette monnaie disparaît.",
-    ["part = achats nets cumulés (PSPP + PEPP) / dette publique"],
+    [],
     "la montée de 2015 à 2018, le bond de 2020-2021 (pic au-delà de 40 % pour l'Allemagne en 2022), puis la baisse continue " +
     "depuis 2023 (QT) : d'autres acheteurs doivent prendre le relais ; la Grèce, trop mal notée, n'est achetée qu'à partir de " +
     "2020. Les intérêts versés aux banques centrales nationales reviennent en partie à l'État par leurs bénéfices, mais depuis " +
-    "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte. " +
-    "Montants au coût d'achat ; rachats de 2010-2012 (SMP) non compris."),
+    "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte."),
   demand: explain("Le PIB mesure tout ce qui est produit dans le pays ; on le décompose ici par ses utilisations : consommation " +
     "des ménages (C), investissement des entreprises, des ménages (logement) et de l'État (I, stocks compris), consommation " +
     "publique, c'est-à-dire les services publics (G), et solde du commerce extérieur (X − M). Les importations sont retranchées " +
@@ -246,8 +245,7 @@ const INFO = {
     "l'Allemagne vit d'excédents commerciaux depuis les années 2000 (jusqu'à 7 % du PIB) ; avant 2008, Grèce, Portugal et " +
     "Espagne importaient bien plus qu'ils n'exportaient (Grèce : −11 % du PIB en 2008), puis la crise les a fait passer en " +
     "excédent ; investissement espagnol à 30 % du PIB en 2007 (bulle immobilière) ; Irlande : exportations et importations " +
-    "énormes (147 % du PIB) dues aux multinationales ; la consommation publique monte depuis 1950. Avant 2000 : chiffres " +
-    "annuels (Global Macro Database), Y étant la somme des composantes."),
+    "énormes (147 % du PIB) dues aux multinationales ; la consommation publique monte depuis 1950."),
   growth: explain("Croissance nominale du PIB (g, ligne pleine) décomposée en inflation (prix du PIB) et croissance réelle " +
     "(volumes), comparée au taux moyen payé sur la dette publique (r, pointillés). Fond rouge : r > g, la dette fait boule de " +
     "neige ; fond bleu : r < g, la croissance allège son poids.",
@@ -258,14 +256,13 @@ const INFO = {
     "mesure que la dette est renouvelée à taux bas ; en 2022-2023, l'inflation fait bondir g alors que r ne suit qu'avec retard " +
     "(la dette française a une durée moyenne d'environ 8 ans)."),
   growthAll: explain("Même croissance nominale (g), comparée cette fois au taux moyen de toute la dette de l'économie hors " +
-    "banques et assurances : administrations, entreprises non financières et ménages (r, depuis 2000).",
+    "banques et assurances : administrations, entreprises non financières et ménages (r).",
     ["r = intérêts versés par les entreprises, les ménages et l'État / leurs titres de dette et crédits un an plus tôt",
       "1 + g = (1 + croissance réelle) × (1 + inflation)"],
     "ce taux suit les taux de la BCE bien plus vite que celui de l'État : beaucoup de crédits aux entreprises, et en Espagne " +
     "et au Portugal la plupart des prêts immobiliers, sont à taux variable (indexés sur l'Euribor), alors que l'État emprunte " +
     "à long terme et à taux fixe. Il plonge donc après 2012 (Espagne : 2,6 % contre 4,2 % pour l'État) et remonte plus vite " +
-    "en 2022-2023 (France : de 1,3 % à 2,9 % en deux ans, contre 1,8 % pour l'État). Intérêts hors services bancaires " +
-    "facturés (SIFIM) : un peu inférieurs à ce que facturent les banques."),
+    "en 2022-2023 (France : de 1,3 % à 2,9 % en deux ans, contre 1,8 % pour l'État)."),
 };
 
 const PANELS = [
