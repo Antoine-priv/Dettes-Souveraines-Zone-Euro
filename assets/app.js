@@ -45,25 +45,48 @@ const area = (v, y, fill) => ({ y, fill, fillcolor: css(v) + "8c", line: { color
 const swatch = (v, l, x, style = "") => `<div><span class="sw${style}" style="background:${css(v)}"></span>${l} <b>${x}</b></div>`;
 const hatched = (v, l, x) => `<div><span class="sw" style="background:repeating-linear-gradient(-45deg,${css(v)} 0 2px,transparent 2px 4px)"></span>${l} <b>${x}</b></div>`;
 const hatch = v => ({ fillcolor: "rgba(0,0,0,0)", fillpattern: { shape: "/", fgcolor: css(v), bgcolor: "rgba(0,0,0,0)", size: 7, solidity: 0.3 } });
+// Points ajoutés là où une courbe de keys change de signe entre deux points, toutes les courbes y étant interpolées
+// linéairement (comme au tracé) : découpées à zéro, les parties positives et négatives suivent alors exactement la courbe,
+// au lieu de rejoindre zéro au point suivant. {x: [...], nom: [...]} pour chaque courbe de series.
+const stamp = t => new Date(t).toISOString().slice(0, 16).replace("T", " ");
+function splitAtZero(xs, series, keys) {
+  const ms = xs.map(Date.parse), names = Object.keys(series), out = { x: [] };
+  names.forEach(k => { out[k] = []; });
+  const at = (i, t) => names.forEach(k => {
+    const a = series[k][i], b = series[k][i + 1];
+    out[k].push(t === 0 ? a : a == null || b == null ? null : a + t * (b - a));
+  });
+  for (let i = 0; i < ms.length; i++) {
+    out.x.push(xs[i]); at(i, 0);
+    if (i + 1 === ms.length) break;
+    const cross = keys.map(k => { const a = series[k][i], b = series[k][i + 1]; return a != null && b != null && a * b < 0 ? a / (a - b) : null; })
+      .filter(t => t != null).sort((a, b) => a - b);
+    for (const t of cross) { out.x.push(stamp(ms[i] + t * (ms[i + 1] - ms[i]))); at(i, t); }
+  }
+  return out;
+}
+
 function growthPanel(key, title, rate, rateLabel) {
+  const xs = DATA.growth.periods.map(windowMid);
   return { key, title, rate, codes: ALL_CODES, zero: true, single: true, history: true, rg: true,
-    x: DATA.growth.periods.map(windowMid), date: i => windowLabel(DATA.growth.periods[i]),
+    x: xs, date: i => windowLabel(DATA.growth.periods[i]),
     // Inflation depuis zéro, croissance réelle empilée au-dessus (en dessous si elle est négative) jusqu'à la croissance
     // nominale (ligne) ; parties négatives hachurées. Chaque partie négative ou positive a sa propre courbe, remplie
     // jusqu'à la précédente (base invisible répétée) ; les bords sont tracés par les courbes de base.
     traces: c => {
-      const inf = inflation[c], sum = (f, g) => inf.map((v, i) => v == null || real[c][i] == null ? null : +(f(v) + g(real[c][i])).toFixed(2));
-      const clip = (y, f) => y.map(v => v == null ? null : f(v, 0));
+      const d = splitAtZero(xs, { inf: inflation[c], real: real[c], nominal: growth[c], rate: rate[c] }, ["inf", "real"]), x = d.x;
+      const inf = d.inf, sum = f => inf.map((v, i) => v == null || d.real[i] == null ? null : v + f(d.real[i], 0));
+      const clip = f => inf.map(v => v == null ? null : f(v, 0));
       const none = { line: { width: 0 } };
       return [
-        { ...area("--s2", clip(inf, Math.max), "tozeroy"), ...none },
-        { y: clip(inf, Math.min), fill: "tozeroy", ...hatch("--s2"), ...none },
-        { y: inf, line: { color: css("--s2"), width: 1.5 } },
-        { ...area("--s3", sum(v => v, r => Math.max(r, 0)), "tonexty"), ...none },
-        { y: inf, ...none },
-        { y: sum(v => v, r => Math.min(r, 0)), fill: "tonexty", ...hatch("--s3"), ...none },
-        { y: growth[c], line: { color: css("--text-primary"), width: 2 } },
-        { y: rate[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
+        { x, ...area("--s2", clip(Math.max), "tozeroy"), ...none },
+        { x, y: clip(Math.min), fill: "tozeroy", ...hatch("--s2"), ...none },
+        { x, y: inf, line: { color: css("--s2"), width: 1.5 } },
+        { x, ...area("--s3", sum(Math.max), "tonexty"), ...none },
+        { x, y: inf, ...none },
+        { x, y: sum(Math.min), fill: "tonexty", ...hatch("--s3"), ...none },
+        { x, y: d.nominal, line: { color: css("--text-primary"), width: 2 } },
+        { x, y: d.rate, connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
       ];
     },
     tip: (c, i) => [["--s2", inflation[c][i] < 0 ? "Inflation (baisse des prix)" : "Inflation", inflation[c][i]],
@@ -151,15 +174,15 @@ const deficitPanel = {
   key: "deficit", title: "Déficit public = déficit primaire + intérêts de la dette (% du PIB)", codes: ALL_CODES, zero: true, single: true,
   x: DATA.deficit.periods.map(windowMid), date: i => windowLabel(DATA.deficit.periods[i]),
   traces: c => {
-    const idx = DEFICIT[c].flatMap((d, i) => d ? [i] : []), x = idx.map(i => deficitPanel.x[i]);
-    const y = f => idx.map(i => f(DEFICIT[c][i]));
+    const idx = DEFICIT[c].flatMap((d, i) => d ? [i] : []), get = k => idx.map(i => DEFICIT[c][i][k]);
+    const d = splitAtZero(idx.map(i => deficitPanel.x[i]), { primary: get("primary"), total: get("total") }, ["primary"]), x = d.x;
     return [
       // bord des aires du déficit primaire tracé une seule fois (par la 3e courbe), pas le long de zéro
-      { x, ...area("--s1", y(d => Math.max(d.primary, 0)), "tozeroy"), line: { width: 0 } },
-      { x, y: y(d => Math.min(d.primary, 0)), fill: "tozeroy", ...hatch("--s1"), line: { width: 0 } },
-      { x, y: y(d => d.primary), line: { color: css("--s1"), width: 1.5 } },   // base des intérêts
-      { x, ...area("--s2", y(d => d.total), "tonexty") },
-      { x, y: y(d => d.total), line: { color: css("--text-primary"), width: 2 } },
+      { x, ...area("--s1", d.primary.map(v => Math.max(v, 0)), "tozeroy"), line: { width: 0 } },
+      { x, y: d.primary.map(v => Math.min(v, 0)), fill: "tozeroy", ...hatch("--s1"), line: { width: 0 } },
+      { x, y: d.primary, line: { color: css("--s1"), width: 1.5 } },   // base des intérêts
+      { x, ...area("--s2", d.total, "tonexty") },
+      { x, y: d.total, line: { color: css("--text-primary"), width: 2 } },
     ];
   },
   tip: (c, i) => {
