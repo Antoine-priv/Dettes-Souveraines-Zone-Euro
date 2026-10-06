@@ -39,14 +39,61 @@ const windowLabel = q => {
 const pct = v => `${fmt(v)} %`;
 const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
-// Panneau à un seul pays (state.pick, choisi à droite du titre, commun aux deux panneaux), indépendamment de la légende
+// Panneaux à un seul pays (state.pick, choisi à droite du titre, commun à ces panneaux), indépendamment de la légende.
+// traces(c) : courbes du pays c ; aire colorée remplie jusqu'à zéro ou jusqu'à la courbe précédente.
+const area = (v, y, fill) => ({ y, fill, fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } });
+const swatch = (v, l, x, style = "") => `<div><span class="sw${style}" style="background:${css(v)}"></span>${l} <b>${x}</b></div>`;
 function growthPanel(key, title, rate, rateLabel) {
-  return { key, title, rate, codes: ALL_CODES, zero: true, single: true,
-    x: DATA.growth.periods.map(windowMid), y: c => growth[c], date: i => windowLabel(DATA.growth.periods[i]),
+  return { key, title, rate, codes: ALL_CODES, zero: true, single: true, history: true,
+    x: DATA.growth.periods.map(windowMid), date: i => windowLabel(DATA.growth.periods[i]),
+    traces: c => [
+      area("--s2", inflation[c], "tozeroy"),
+      area("--s3", growth[c], "tonexty"),
+      { y: rate[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
+    ],
     tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
       ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", rateLabel, rate[c][i], "dash"]]
-      .filter(r => r[2] != null).map(([v, l, x, dash]) => `<div><span class="sw${dash ? " dash" : ""}" style="background:${css(v)}"></span>${l} <b>${pct(x)}</b></div>`).join("") };
+      .filter(r => r[2] != null).map(([v, l, x, dash]) => swatch(v, l, pct(x), dash ? " dash" : "")).join("") };
 }
+
+// PIB par la demande, Y = C + I + G + (X − M) (Md€ sur 4 trimestres glissants, annuels avant 2000), en Md€ ou en % du PIB
+// (state.unit) : aires empilées C, I, G, puis exportations nettes hachurées entre C + I + G et le PIB (au-dessus en cas
+// d'excédent, par-dessus G en cas de déficit). Y est la somme des composantes (écart statistique écarté, voir update.py).
+const DEMAND = Object.fromEntries(ALL_CODES.map(c => [c, DATA.demand.periods.map((_, i) => {
+  const [C, I, G, X, M] = ["C", "I", "G", "X", "M"].map(k => DATA.demand.series[c][k][i]);
+  return C == null ? null : { C, I, G, X, M, Y: C + I + G + X - M };
+})]));
+const UNITS = { pct: "% du PIB", eur: "Md€" };
+const mdEur = v => {   // décimales selon l'ordre de grandeur (Grèce des années 1950 : quelques dizaines de M€)
+  const a = Math.abs(v), n = a >= 100 ? Math.round(a).toLocaleString("fr-FR") : a.toFixed(a >= 1 ? 1 : 2).replace(".", ",");
+  return `${v < 0 ? "-" : ""}${n} Md€`;   // signe comme toFixed, ailleurs sur la page
+};
+const demandPanel = {
+  key: "demand", title: "PIB par la demande : Y = C + I + G + (X − M)",
+  codes: ALL_CODES, single: true, fromZero: true, units: UNITS,
+  x: DATA.demand.periods.map(windowMid), date: i => windowLabel(DATA.demand.periods[i]),
+  traces: c => {
+    const sum = (...ks) => DEMAND[c].map(d => d && +(ks.reduce((s, k) => s + d[k], 0) * (state.unit === "pct" ? 100 / d.Y : 1)).toFixed(4));
+    return [
+      area("--s1", sum("C"), "tozeroy"),
+      area("--s4", sum("C", "I"), "tonexty"),
+      area("--s6", sum("C", "I", "G"), "tonexty"),
+      { y: sum("Y"), fill: "tonexty", fillcolor: "rgba(0,0,0,0)", line: { color: css("--text-primary"), width: 2 },
+        fillpattern: { shape: "/", fgcolor: css("--s2"), bgcolor: "rgba(0,0,0,0)", size: 7, solidity: 0.3 } },
+    ];
+  },
+  tip: (c, i) => {
+    const d = DEMAND[c][i];
+    if (!d) return "";
+    const v = x => state.unit === "pct" ? `${(100 * x / d.Y).toFixed(1).replace(".", ",")} %` : mdEur(x);
+    const hatch = `;background:repeating-linear-gradient(-45deg,${css("--s2")} 0 2px,transparent 2px 4px)`;
+    return swatch("--s1", "Consommation des ménages (C)", v(d.C)) + swatch("--s4", "Investissement (I)", v(d.I)) +
+      swatch("--s6", "Consommation publique (G)", v(d.G)) +
+      `<div><span class="sw" style="${hatch.slice(1)}"></span>Exportations − importations (X − M) <b>${v(d.X - d.M)}</b></div>` +
+      `<div class="muted">exportations ${v(d.X)}, importations ${v(d.M)}</div>` +
+      swatch("--text-primary", "PIB (Y)", state.unit === "pct" ? mdEur(d.Y) : v(d.Y));
+  },
+};
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
@@ -66,6 +113,7 @@ const PANELS = [
     x: DATA.burden.periods.map(windowMid), y: c => DATA.burden.series[c], date: i => windowLabel(DATA.burden.periods[i]), text: pctGDP },
   { key: "qe", title: "Part de la dette publique détenue par l'Eurosystème, achats QE (%)", codes: ALL_CODES,
     x: DATA.qe.periods.map(monthEnd), y: c => DATA.qe.series[c], text: v => `${v.toFixed(1).replace(".", ",")} % de la dette` },
+  demandPanel,
   growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),
   growthPanel("growthAll", "Inflation + croissance et taux moyen de toute la dette : État, entreprises, ménages (%)",
     interestAll, "Taux moyen de toute la dette"),
@@ -82,8 +130,10 @@ try {
   state.folded = new Set(saved.folded.filter(k => PANEL[k]));
 } catch {}
 const savePanels = () => { try { localStorage.setItem("panels", JSON.stringify({ order: state.order, folded: [...state.folded] })); } catch {} };
-state.pick = "FR";   // pays du panneau « single »
+state.pick = "FR";   // pays des panneaux « single »
 try { const p = localStorage.getItem("pick"); if (ALL_CODES.includes(p)) state.pick = p; } catch {}
+state.unit = "pct";  // unité du panneau du PIB par la demande
+try { const u = localStorage.getItem("unit"); if (UNITS[u]) state.unit = u; } catch {}
 let shown = [];   // panneaux dépliés, dans l'ordre d'affichage
 
 // ---- Construction des traces --------------------------------------------------
@@ -96,16 +146,10 @@ function traces(panel, code) {
   };
 }
 
-// Panneau à un seul pays : aires empilées inflation (0 → inflation) puis croissance (→ inflation + croissance),
-// et taux moyen de la dette en pointillés ; ces courbes ne dépendent pas de la légende (pas de legendgroup).
+// Panneau à un seul pays : courbes du pays choisi (panel.traces), qui ne dépendent pas de la légende (pas de legendgroup)
 function singleTraces(panel) {
-  const c = state.pick, common = { xaxis: "x" + panel.n, yaxis: "y" + panel.n, showlegend: false, type: "scatter", mode: "lines", x: panel.x };
-  const area = (v, y, fill) => ({ ...common, y, fill, fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } });
-  return [
-    area("--s2", inflation[c], "tozeroy"),
-    area("--s3", growth[c], "tonexty"),
-    { ...common, y: panel.rate[c], connectgaps: true, line: { color: css("--text-primary"), width: 2, dash: "dot" } },   // 2000 : relie l'annuel au trimestriel
-  ];
+  const common = { xaxis: "x" + panel.n, yaxis: "y" + panel.n, showlegend: false, type: "scatter", mode: "lines", x: panel.x };
+  return panel.traces(state.pick).map(t => ({ ...common, ...t }));
 }
 const buildTraces = () => shown.flatMap(panel => panel.single ? singleTraces(panel) : panel.codes.map(c => traces(panel, c)));
 
@@ -160,7 +204,7 @@ const EVENTS = [
     "(de 1,3 à plus de 3 points à l'automne) ; Moody's abaisse la note en octobre.", "IT"],
 ];
 const visibleEvents = () => EVENTS.filter(e => !e[3] || !state.hidden.has(e[3]));
-// Événements historiques du panneau à un seul pays (selon le pays choisi), libellés sur ce panneau
+// Événements historiques des panneaux de croissance (selon le pays choisi), libellés sur ces panneaux
 const HISTORY = c => [
   ...(c === "FR" ? [["1945-06-01", "Début des Trente Glorieuses", "Reconstruction puis modernisation de la France, jusqu'au choc pétrolier de 1973. " +
     "Effet : forte croissance réelle (aire verte, environ 5 % par an) et inflation soutenue (aire orange), bien au-dessus d'un taux moyen " +
@@ -203,7 +247,7 @@ function baseLayout(geo) {
   });
   const shapes = [
     ...shown.flatMap(p => visibleEvents().map(([d, , , c]) => eventLine(d, "x" + p.n, `y${p.n} domain`, c))),
-    ...shown.filter(p => p.single).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
+    ...shown.filter(p => p.history).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
     ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
   ];
   const yCommon = { ...axisCommon, side: "right", fixedrange: false, ticklabelposition: "outside", automargin: true };
@@ -283,8 +327,9 @@ const msCache = new WeakMap();   // dates des courbes en ms, calculées une fois
 const toMs = xs => { let m = msCache.get(xs); if (!m) msCache.set(xs, m = Float64Array.from(xs, Date.parse)); return m; };
 function autoRanges(data, [x0, x1]) {
   const out = {};
-  for (const [axis, yname] of shown.map(p => ["y" + p.n, "yaxis" + p.n])) {
-    let lo = Infinity, hi = -Infinity;
+  for (const p of shown) {
+    const axis = "y" + p.n, yname = "yaxis" + p.n;
+    let lo = p.fromZero ? 0 : Infinity, hi = -Infinity;   // aires empilées depuis zéro : zéro toujours visible
     for (const t of data) {
       if (t.yaxis !== axis || t.visible === "legendonly") continue;
       const ms = toMs(t.x), y = t.y;
@@ -297,9 +342,9 @@ function autoRanges(data, [x0, x1]) {
         if (v > hi) hi = v;
       }
     }
-    if (lo === Infinity) continue;
+    if (hi === -Infinity) continue;
     const pad = (hi - lo) * 0.06 || 0.5;
-    out[yname] = [lo - pad, hi + pad];
+    out[yname] = [p.fromZero ? 0 : lo - pad, hi + pad];
   }
   return out;
 }
@@ -423,7 +468,7 @@ function paintEvents(range) {
   const toPx = d => s.l + (Date.parse(d) - r0) / (r1 - r0) * s.w;
   const geo = titles.geo, html = [];
   shown.forEach((p, k) => {
-    const list = [...(k === 0 ? visibleEvents() : EVENTS.filter(e => !e[3])), ...(p.single ? HISTORY(state.pick) : [])]
+    const list = [...(k === 0 ? visibleEvents() : EVENTS.filter(e => !e[3])), ...(p.history ? HISTORY(state.pick) : [])]
       .map(e => ({ e, x: toPx(e[0]) })).filter(o => o.x >= s.l && o.x < s.l + s.w).sort((a, b) => a.x - b.x);
     const top = geo.blocks.find(b => b.key === p.key).plotTop + 2;
     list.forEach((o, j) => {
@@ -578,8 +623,11 @@ function paintTitles(geo) {
     return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
       `<span class="ttl"><button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
       `${PANEL[b.key].title}</span></div>` +
-      (PANEL[b.key].single && !folded ? `<select class="pick" style="top:${b.top + 12}px">` +
-        ALL_CODES.map(c => `<option value="${c}"${c === state.pick ? " selected" : ""}>${DATA.names[c]}</option>`).join("") + "</select>" : "");
+      (PANEL[b.key].single && !folded ? `<span class="picks" style="top:${b.top + 12}px">` +
+        (PANEL[b.key].units ? `<select class="unit">` + Object.entries(PANEL[b.key].units).map(([u, l]) =>
+          `<option value="${u}"${u === state.unit ? " selected" : ""}>${l}</option>`).join("") + "</select>" : "") +
+        `<select class="pick">` + ALL_CODES.map(c => `<option value="${c}"${c === state.pick ? " selected" : ""}>${DATA.names[c]}</option>`).join("") +
+        "</select></span>" : "");
   }).join("");
   titles.geo = geo;
 }
@@ -613,9 +661,10 @@ async function toggleFold(key) {
   animating = false;
 }
 titles.addEventListener("change", ev => {
-  if (!ev.target.matches(".pick")) return;
-  state.pick = ev.target.value;
-  try { localStorage.setItem("pick", state.pick); } catch {}
+  const key = ev.target.matches(".pick") ? "pick" : ev.target.matches(".unit") ? "unit" : null;
+  if (!key) return;
+  state[key] = ev.target.value;
+  try { localStorage.setItem(key, state[key]); } catch {}
   render();
 });
 // à l'appui du bouton (pas au relâchement) : réaction immédiate
