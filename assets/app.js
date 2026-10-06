@@ -44,7 +44,7 @@ const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 const area = (v, y, fill) => ({ y, fill, fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } });
 const swatch = (v, l, x, style = "") => `<div><span class="sw${style}" style="background:${css(v)}"></span>${l} <b>${x}</b></div>`;
 function growthPanel(key, title, rate, rateLabel) {
-  return { key, title, rate, codes: ALL_CODES, zero: true, single: true, history: true,
+  return { key, title, rate, codes: ALL_CODES, zero: true, single: true, history: true, rg: true,
     x: DATA.growth.periods.map(windowMid), date: i => windowLabel(DATA.growth.periods[i]),
     traces: c => [
       area("--s2", inflation[c], "tozeroy"),
@@ -53,7 +53,36 @@ function growthPanel(key, title, rate, rateLabel) {
     ],
     tip: (c, i) => [["--s2", "Inflation", inflation[c][i]], ["--s3", "Croissance", real[c][i]],
       ["--text-primary", "Inflation + croissance", growth[c][i]], ["--text-primary", rateLabel, rate[c][i], "dash"]]
-      .filter(r => r[2] != null).map(([v, l, x, dash]) => swatch(v, l, pct(x), dash ? " dash" : "")).join("") };
+      .filter(r => r[2] != null).map(([v, l, x, dash]) => swatch(v, l, pct(x), dash ? " dash" : "")).join("") +
+      (rate[c][i] == null || growth[c][i] == null ? "" : `<div class="muted">${rate[c][i] > growth[c][i]
+        ? "r > g : les intérêts font grossir la dette plus vite que le PIB" : "r < g : la croissance allège le poids de la dette"}</div>`) };
+}
+
+// Fond des panneaux de croissance : rouge pâle quand le taux moyen de la dette dépasse la croissance nominale (r > g,
+// effet boule de neige), bleu pâle sinon. Chaque point couvre jusqu'à mi-chemin de ses voisins ; périodes de même signe fusionnées.
+// Taux manquant entre deux valeurs connues (2000 : rien avant l'annuel 1999) : interpolé, comme la courbe en pointillés qui les relie.
+function rgShapes(p) {
+  const c = state.pick, g = growth[c], ms = p.stamps, n = ms.length, out = [];
+  const r = p.rate[c].slice();
+  for (let i = 1, k = r.findIndex(v => v != null); k >= 0 && i < n; i++) {
+    if (r[i] == null) continue;
+    for (let j = k + 1; j < i; j++) r[j] = r[k] + (r[i] - r[k]) * (ms[j] - ms[k]) / (ms[i] - ms[k]);
+    k = i;
+  }
+  const left = i => i > 0 ? (ms[i - 1] + ms[i]) / 2 : ms[0] - (ms[1] - ms[0]) / 2;
+  const right = i => i < n - 1 ? (ms[i] + ms[i + 1]) / 2 : ms[i] + (ms[i] - ms[i - 1]) / 2;
+  const iso = t => new Date(t).toISOString().slice(0, 10);
+  const sign = i => r[i] == null || g[i] == null ? null : r[i] > g[i];
+  for (let i = 0; i < n; i++) {
+    const s = sign(i);
+    if (s == null) continue;
+    let j = i;
+    while (j + 1 < n && sign(j + 1) === s) j++;
+    out.push({ type: "rect", xref: "x" + p.n, yref: `y${p.n} domain`, x0: iso(left(i)), x1: iso(right(j)), y0: 0, y1: 1,
+      fillcolor: css(s ? "--s5" : "--s1") + "1a", line: { width: 0 }, layer: "below" });
+    i = j;
+  }
+  return out;
 }
 
 // PIB par la demande, Y = C + I + G + (X − M) (Md€ sur 4 trimestres glissants, annuels avant 2000), en Md€ ou en % du PIB
@@ -246,6 +275,7 @@ function baseLayout(geo) {
     line: { color: c ? COLOR(c) : css("--zero"), width: 1, dash: "dot" }, layer: "below",
   });
   const shapes = [
+    ...shown.filter(p => p.rg).flatMap(rgShapes),
     ...shown.flatMap(p => visibleEvents().map(([d, , , c]) => eventLine(d, "x" + p.n, `y${p.n} domain`, c))),
     ...shown.filter(p => p.history).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
     ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),
