@@ -137,7 +137,7 @@ const mdEur = v => {   // décimales selon l'ordre de grandeur (Grèce des anné
   return `${v < 0 ? "-" : ""}${n} Md€`;   // signe comme toFixed, ailleurs sur la page
 };
 const demandPanel = {
-  key: "demand", title: "PIB par la demande : Y = C + I + G + (X − M)",
+  key: "demand", title: "PIB par la demande",
   codes: ALL_CODES, single: true, fromZero: true, units: UNITS,
   x: DATA.demand.periods.map(windowMid), date: i => windowLabel(DATA.demand.periods[i]),
   traces: c => {
@@ -171,7 +171,7 @@ const DEFICIT = Object.fromEntries(ALL_CODES.map(c => [c, DATA.deficit.periods.m
   return total == null || interest == null ? null : { total, interest, primary: +(total - interest).toFixed(2) };
 })]));
 const deficitPanel = {
-  key: "deficit", title: "Déficit public = déficit primaire + intérêts de la dette (% du PIB)", codes: ALL_CODES, zero: true, single: true,
+  key: "deficit", title: "Déficit public : déficit primaire et intérêts de la dette (% du PIB)", codes: ALL_CODES, zero: true, single: true,
   x: DATA.deficit.periods.map(windowMid), date: i => windowLabel(DATA.deficit.periods[i]),
   traces: c => {
     const idx = DEFICIT[c].flatMap((d, i) => d ? [i] : []), get = k => idx.map(i => DEFICIT[c][i][k]);
@@ -197,7 +197,7 @@ const deficitPanel = {
 // Explications affichées au survol d'un titre : ce que montre le graphique, formules, ce qu'il faut y observer
 const explain = (what, formulas, watch) => `<div>${what}</div>` + formulas.map(f => `<div class="f">${f}</div>`).join("") +
   `<p><b>À observer :</b> ${watch}</p>`;
-const SNOWBALL = "Δd ≈ (r − g) / (1 + g) × d<sub>t−1</sub> + déficit primaire";
+const SNOWBALL = "Δd ≈ (r − g) / (1 + g) × d<sub>t−1</sub> + déficit primaire (% du PIB)";
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
@@ -241,7 +241,7 @@ const INFO = {
     "des ménages (C), investissement des entreprises, des ménages (logement) et de l'État (I, stocks compris), consommation " +
     "publique, c'est-à-dire les services publics (G), et solde du commerce extérieur (X − M). Les importations sont retranchées " +
     "car elles sont déjà comptées dans C, I et G mais produites ailleurs.",
-    ["Y = C + I + G + (X − M)", "croissance du PIB = (ΔC + ΔI + ΔG + Δ(X − M)) / Y<sub>t−1</sub>"],
+    ["Y = C + I + G + (X − M)"],
     "l'Allemagne vit d'excédents commerciaux depuis les années 2000 (jusqu'à 7 % du PIB) ; avant 2008, Grèce, Portugal et " +
     "Espagne importaient bien plus qu'ils n'exportaient (Grèce : −11 % du PIB en 2008), puis la crise les a fait passer en " +
     "excédent ; investissement espagnol à 30 % du PIB en 2007 (bulle immobilière) ; Irlande : exportations et importations " +
