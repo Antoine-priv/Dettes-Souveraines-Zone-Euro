@@ -202,7 +202,7 @@ const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
     ["écart = taux 10 ans du pays − taux 10 ans allemand"],
-    "presque nul de 1999 à 2008, comme si toutes les dettes se valaient ; envolée de 2010 à 2012 (Grèce jusqu'à 27 points, " +
+    "presque nul de 1999 à 2008, comme si toutes les dettes se valaient ; envolée de 2010 à 2012 (Grèce jusqu'à 27 %, " +
     "Portugal 12, Irlande près de 10, Espagne et Italie plus de 5) ; reflux après « Whatever it takes » puis avec le QE ; " +
     "poussée italienne en 2018 ; depuis 2024, la France s'écarte de l'Allemagne avec l'instabilité politique et budgétaire, " +
     "jusqu'à rejoindre l'Italie."),
@@ -266,8 +266,8 @@ const INFO = {
 };
 
 const PANELS = [
-  { key: "spread", title: "Écart de taux d'emprunt d'État à 10 ans avec l'Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
-    x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt` },
+  { key: "spread", title: "Écart de taux d'emprunt d'État à 10 ans avec l'Allemagne (%)", codes: SPREAD_CODES, zero: true,
+    x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} %` },
   { key: "rate", title: "Taux d'emprunt d'État à 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
@@ -365,7 +365,7 @@ const EVENTS = [
     "une semaine plus tard, Tsipras accepte un 3e plan d'aide, plus dur encore.", "GR"],
   ["2018-06-01", "Gouvernement Ligue-M5S", "Arrivée au pouvoir en Italie d'une coalition populiste (Ligue et Mouvement 5 étoiles) " +
     "qui a envisagé de sortir de l'euro et prévoit plus de déficit. Effet : le spread italien double en quelques semaines " +
-    "(de 1,3 à plus de 3 points à l'automne) ; Moody's abaisse la note en octobre.", "IT"],
+    "(de 1,3 % à plus de 3 % à l'automne) ; Moody's abaisse la note en octobre.", "IT"],
 ];
 const visibleEvents = () => EVENTS.filter(e => !e[3] || !state.hidden.has(e[3]));
 // Événements historiques des panneaux de croissance (selon le pays choisi), libellés sur ces panneaux

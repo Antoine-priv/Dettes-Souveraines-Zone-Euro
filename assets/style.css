@@ -61,7 +61,7 @@ button:hover { opacity: .75; }
 #chart { width: 100%; }
 #stage { position: relative; }
 footer { margin: 8px 0 24px; padding-left: 16px; font-size: 12px; color: var(--text-muted); }
-#hover { position: absolute; inset: 0; pointer-events: none; }
+#hover { position: absolute; inset: 0; pointer-events: none; z-index: 4; }   /* au-dessus des libellés d'événements */
 #hover[hidden] { display: none; }
 .vline { position: absolute; border-left: 1px dashed var(--text-muted); }
 .hline { position: absolute; border-top: 1px dashed var(--text-muted); }
