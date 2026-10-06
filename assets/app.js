@@ -198,6 +198,39 @@ const deficitPanel = {
 const explain = (what, formulas, watch) => `<div>${what}</div>` + formulas.map(f => `<div class="f">${f}</div>`).join("") +
   `<p><b>À observer :</b> ${watch}</p>`;
 const SNOWBALL = "Δd ≈ (r − g) / (1 + g) × d<sub>t−1</sub> + déficit primaire (% du PIB)";
+// Masse monétaire M3 de la zone euro (un seul tracé, sans choix du pays) : croissance sur 12 mois (ligne) et contribution
+// de chaque source de création monétaire, empilées au-dessus de zéro si elles sont positives, en dessous (hachurées)
+// sinon. Valeurs sur 12 mois glissants, placées au milieu de leur période comme les autres flux.
+const MONEY = [["private", "--s1", "Crédit aux entreprises et ménages"], ["government", "--s2", "Crédit aux administrations publiques, dont QE"],
+  ["external", "--s3", "Avoirs extérieurs nets"], ["other", "--s7", "Autres, surtout financements longs des banques"]];
+const monthMid = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 6, 1)).toISOString().slice(0, 10);   // milieu des 12 mois finissant en m
+const monthWindow = m => {
+  const [y, n] = m.split("-").map(Number), s = new Date(Date.UTC(y, n - 12, 1));
+  return `${MOIS[s.getUTCMonth()]} ${s.getUTCFullYear()} → ${MOIS[n - 1]} ${y}`;
+};
+const moneyPanel = {
+  key: "money", title: "Masse monétaire M3 de la zone euro : croissance sur un an et ses sources (%)", codes: ALL_CODES,
+  single: true, place: "zone euro", zero: true,
+  x: DATA.money.periods.map(monthMid), date: i => monthWindow(DATA.money.periods[i]),
+  traces: () => {
+    const d = splitAtZero(moneyPanel.x, Object.fromEntries(["m3", ...MONEY.map(m => m[0])].map(k => [k, DATA.money[k]])), MONEY.map(m => m[0]));
+    const stack = (f, style) => {   // aires empilées depuis zéro, chacune jusqu'à la précédente
+      let acc = d.x.map(() => 0);
+      return MONEY.map(([k, v], j) => {
+        acc = acc.map((a, i) => a + f(d[k][i], 0));
+        return { x: d.x, y: acc, fill: j ? "tonexty" : "tozeroy", ...style(v) };
+      });
+    };
+    return [
+      ...stack(Math.max, v => ({ fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } })),
+      ...stack(Math.min, v => ({ ...hatch(v), line: { color: css(v), width: 1 } })),
+      { x: d.x, y: d.m3, line: { color: css("--text-primary"), width: 2 } },
+    ];
+  },
+  tip: (c, i) => MONEY.map(([k, v, l]) => DATA.money[k][i] < 0 ? hatched(v, l, pct(DATA.money[k][i])) : swatch(v, l, pct(DATA.money[k][i]))).join("") +
+    swatch("--text-primary", "Croissance de M3", pct(DATA.money.m3[i])),
+};
+
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
@@ -237,6 +270,20 @@ const INFO = {
     "depuis 2023 (QT) : d'autres acheteurs doivent prendre le relais ; la Grèce, trop mal notée, n'est achetée qu'à partir de " +
     "2020. Les intérêts versés aux banques centrales nationales reviennent en partie à l'État par leurs bénéfices, mais depuis " +
     "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte."),
+  money: explain("La masse monétaire M3 réunit les billets, les dépôts et les placements à court terme des ménages et des " +
+    "entreprises de la zone euro. Elle naît quand une banque, ou la banque centrale, accorde un crédit ou achète un titre : " +
+    "le prêt crée un dépôt du même montant ; elle disparaît quand le crédit est remboursé. Les aires montrent d'où vient sa " +
+    "croissance sur un an : crédit aux entreprises et ménages, crédit aux administrations publiques, y compris les achats de " +
+    "dette publique par l'Eurosystème, entrées de capitaux venus de l'étranger, et le reste, surtout l'épargne placée à long " +
+    "terme dans les banques, qui sort de la monnaie. Hachures : la source détruit de la monnaie.",
+    ["ΔM3 = Δcrédit au privé + Δcrédit aux administrations + Δavoirs extérieurs nets − Δfinancements longs des banques"],
+    "2005-2007 : boom du crédit (immobilier en Espagne et en Irlande), M3 croît de plus de 10 % par an ; 2012-2014 : les " +
+    "remboursements dépassent les nouveaux crédits (le crédit au privé retire 3 % à M3 en 2013), M3 ne progresse presque plus " +
+    "et l'inflation tombe près de zéro : c'est ce qui conduit la BCE au QE ; 2015-2017 : le crédit aux administrations, porté " +
+    "par les achats de la BCE, prend le relais ; 2020 : prêts garantis par l'État et PEPP portent la croissance de M3 à 12 % ; " +
+    "2023 : avec le QT et la hausse des taux, le crédit aux administrations détruit de la monnaie et M3 cesse de croître. " +
+    "Quand l'Eurosystème achète un titre à une banque, seules les réserves de la banque augmentent, pas M3 : la monnaie " +
+    "n'apparaît que si le vendeur est un fonds, un assureur ou un ménage."),
   demand: explain("Le PIB mesure tout ce qui est produit dans le pays ; on le décompose ici par ses utilisations : consommation " +
     "des ménages (C), investissement des entreprises, des ménages (logement) et de l'État (I, stocks compris), consommation " +
     "publique, c'est-à-dire les services publics (G), et solde du commerce extérieur (X − M). Les importations sont retranchées " +
@@ -276,6 +323,7 @@ const PANELS = [
   deficitPanel,
   { key: "qe", title: "Part de la dette publique détenue par l'Eurosystème, achats QE (%)", codes: ALL_CODES,
     x: DATA.qe.periods.map(monthEnd), y: c => DATA.qe.series[c], text: v => `${v.toFixed(1).replace(".", ",")} % de la dette` },
+  moneyPanel,
   demandPanel,
   growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),
   growthPanel("growthAll", "Inflation + croissance et taux moyen de toute la dette : État, entreprises, ménages (%)",
@@ -752,7 +800,7 @@ function showHover(ev, hit) {
   }
   tip.hidden = false;
   if (panel.single) {
-    tip.innerHTML = `<div class="date">${panel.date(i)} · ${DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
+    tip.innerHTML = `<div class="date">${panel.date(i)} · ${panel.place || DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
     hline.hidden = true;
     return placeTip(px, py, s, r);
   }
@@ -771,7 +819,7 @@ function placeTip(px, py, s, r) {
   hover.hidden = false;
   // à droite du curseur, ou à gauche s'il n'y a pas la place
   const w = tip.offsetWidth, h = tip.offsetHeight;
-  const left = px + 16 + w > s.l + s.w ? px - 16 - w : px + 16;
+  const left = Math.max(0, px + 16 + w > s.l + s.w ? px - 16 - w : px + 16);   // jamais hors de l'écran à gauche
   tip.style.transform = `translate(${left}px, ${Math.min(Math.max(py - h / 2, 0), r.height - h)}px)`;
 }
 
@@ -796,7 +844,7 @@ function paintTitles(geo) {
     return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
       `<span class="ttl"><button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
       `${PANEL[b.key].title}</span></div>` +
-      (PANEL[b.key].single && !folded ? `<span class="picks" style="top:${b.top + 12}px">` +
+      (PANEL[b.key].single && !PANEL[b.key].place && !folded ? `<span class="picks" style="top:${b.top + 12}px">` +
         (PANEL[b.key].units ? `<select class="unit">` + Object.entries(PANEL[b.key].units).map(([u, l]) =>
           `<option value="${u}"${u === state.unit ? " selected" : ""}>${l}</option>`).join("") + "</select>" : "") +
         `<select class="pick">` + ALL_CODES.map(c => `<option value="${c}"${c === state.pick ? " selected" : ""}>${DATA.names[c]}</option>`).join("") +

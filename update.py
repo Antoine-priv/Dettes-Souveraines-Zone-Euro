@@ -20,6 +20,9 @@ Finances publiques (Eurostat, administrations publiques S13) :
   - PIB par la demande, Y = C + I + G + (X − M) : consommation des ménages, investissement (formation brute de
     capital), consommation publique, exportations et importations, en euros courants sur 4 trimestres glissants
     (namq_10_gdp) ; avant 2000, chiffres annuels depuis 1950 (Global Macro Database) ;
+  - masse monétaire M3 de la zone euro (BCE, mensuel) : croissance sur un an et ses contreparties, c'est-à-dire
+    les sources de la création monétaire (crédit au secteur privé, crédit aux administrations publiques dont le QE,
+    avoirs extérieurs nets, autres) ;
   - déficit avant 2000 : chiffres annuels du FMI depuis 1950 (intérêts − solde primaire) ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
@@ -76,6 +79,16 @@ HIST_START, HIST_END = 1949, 1999
 IMF_URL = "https://www.imf.org/external/datamapper/api/v1/{indicator}"
 GMD_URL = "https://www.globalmacrodata.com/GMD.csv"
 # Achats nets de dette publique de l'Eurosystème (BCE + banques centrales nationales) par pays émetteur, mensuels
+# Masse monétaire de la zone euro (bilans des banques et de l'Eurosystème, données CVS) : encours de M3 et flux mensuels
+# de M3 et de ses contreparties (crédit au secteur privé, aux administrations publiques, avoirs extérieurs nets)
+BSI_URL = "https://data-api.ecb.europa.eu/service/data/BSI/{}?format=csvdata&startPeriod=1997-10"
+MONEY = {
+    "m3": "M.U2.Y.V.M30.X.1.U2.2300.Z01.E",       # encours
+    "m3_flow": "M.U2.Y.V.M30.X.4.U2.2300.Z01.E",  # flux (hors effets de valorisation et reclassements)
+    "private": "M.U2.Y.U.AT2.A.4.U2.2200.Z01.E",  # crédit aux entreprises, ménages et sociétés financières non bancaires
+    "government": "M.U2.Y.U.AT2.A.4.U2.2100.Z01.E",  # crédit aux administrations publiques (titres achetés compris)
+    "external": "M.U2.Y.U.A80.A.4.U4.0000.Z01.E",  # avoirs extérieurs nets
+}
 QE_URL = "https://www.ecb.europa.eu/mopo/pdf/{}.csv"
 QE_FILES = {"PSPP": "PSPP_breakdown_history", "PEPP": "PEPP_public_sector_securities_breakdown_history"}
 QE_NAMES = {"GR": "Greece", "IT": "Italy", "ES": "Spain", "PT": "Portugal", "IE": "Ireland", "FR": "France", "DE": "Germany"}
@@ -266,6 +279,12 @@ def fetch_qe(name):
     return out
 
 
+def fetch_bsi(key):
+    """{'AAAA-MM': valeur} d'une série mensuelle des bilans bancaires de la BCE (millions d'euros)."""
+    return {r["TIME_PERIOD"]: float(r["OBS_VALUE"])
+            for r in csv.DictReader(io.StringIO(http(BSI_URL.format(key)))) if r["OBS_VALUE"]}
+
+
 def download():
     data = {"ecb": {}, "daily": {}, "live": {}, "fetched": datetime.now().strftime("%d/%m/%Y %H:%M")}
     for code, name in COUNTRIES.items():
@@ -291,6 +310,8 @@ def download():
     data["interest_a"] = fetch_eurostat("gov_10a_main", "2000", na_item="D41PAY", sector="S13", unit="PC_GDP")
     print("  BCE : achats de dette publique (QE)…", flush=True)
     data["qe"] = {name: fetch_qe(name) for name in QE_FILES}
+    print("  BCE : masse monétaire M3 et ses contreparties…", flush=True)
+    data["money"] = {k: fetch_bsi(key) for k, key in MONEY.items()}
     print("  Eurostat : intérêts et dette des entreprises et des ménages…", flush=True)
     data["private_interest_q"] = {s: fetch_eurostat("nasq_10_nf_tr", "1999-Q1", na_item="D41", direct="PAID", sector=s,
                                                     unit="CP_MEUR", s_adj="NSA") for s in PRIVATE}
@@ -505,6 +526,34 @@ def eurosystem_share(data):
     return out
 
 
+def money(data):
+    """Croissance de M3 sur 12 mois (%) et contribution de chaque contrepartie, en points : flux des 12 derniers mois
+    / encours de M3 un an plus tôt. Leur somme est la croissance de M3 ; « other » est le reste (surtout les
+    financements longs des banques, qui ne sont pas de la monnaie : dépôts à plus de 2 ans, obligations, capital).
+    {'periods': ['AAAA-MM', ...], 'm3'|'private'|'government'|'external'|'other': [...]}"""
+    d = data.get("money", {})
+    stock = d.get("m3", {})
+    out = {k: [] for k in ("m3", "private", "government", "external", "other")}
+    periods = []
+    for m in sorted(d.get("m3_flow", {})):
+        last12 = [shift_month(m, -k) for k in range(12)]
+        base = stock.get(shift_month(m, -12))
+        if m < "1999-01" or not base or not all(x in d[k] for k in MONEY if k != "m3" for x in last12):
+            continue
+        part = {k: 100 * sum(d[k][x] for x in last12) / base for k in MONEY if k != "m3"}
+        periods.append(m)
+        out["m3"].append(round(part["m3_flow"], 2))
+        for k in ("private", "government", "external"):
+            out[k].append(round(part[k], 2))
+        out["other"].append(round(part["m3_flow"] - part["private"] - part["government"] - part["external"], 2))
+    return {"periods": periods, **out}
+
+
+def shift_month(m, k):
+    n = int(m[:4]) * 12 + int(m[5:]) - 1 + k
+    return f"{n // 12}-{n % 12 + 1:02d}"
+
+
 def months_apart(a, b):
     return (int(b[:4]) - int(a[:4])) * 12 + int(b[5:]) - int(a[5:])
 
@@ -596,6 +645,7 @@ def main():
         "burden": public_finances(interest_burden(data)),
         "qe": public_finances(eurosystem_share(data)),
         "demand": demand(data),
+        "money": money(data),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
@@ -613,9 +663,9 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "qe", "demand"):
+    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "qe", "demand", "money"):
         if periods := payload[key]["periods"]:
-            print(f"{'BCE' if key == 'qe' else 'Eurostat'} {key} : {periods[0]} → {periods[-1]}")
+            print(f"{'BCE' if key in ('qe', 'money') else 'Eurostat'} {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:
         print(f"Eurostat budget de la France : {years[0]} → {years[-1]}  →  {OUTPUT_BUDGET.relative_to(ROOT)}")
 
