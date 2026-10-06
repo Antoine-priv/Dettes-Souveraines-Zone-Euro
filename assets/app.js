@@ -43,6 +43,8 @@ const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 // traces(c) : courbes du pays c ; aire colorée remplie jusqu'à zéro ou jusqu'à la courbe précédente.
 const area = (v, y, fill) => ({ y, fill, fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } });
 const swatch = (v, l, x, style = "") => `<div><span class="sw${style}" style="background:${css(v)}"></span>${l} <b>${x}</b></div>`;
+const hatched = (v, l, x) => `<div><span class="sw" style="background:repeating-linear-gradient(-45deg,${css(v)} 0 2px,transparent 2px 4px)"></span>${l} <b>${x}</b></div>`;
+const hatch = v => ({ fillcolor: "rgba(0,0,0,0)", fillpattern: { shape: "/", fgcolor: css(v), bgcolor: "rgba(0,0,0,0)", size: 7, solidity: 0.3 } });
 function growthPanel(key, title, rate, rateLabel) {
   return { key, title, rate, codes: ALL_CODES, zero: true, single: true, history: true, rg: true,
     x: DATA.growth.periods.map(windowMid), date: i => windowLabel(DATA.growth.periods[i]),
@@ -107,18 +109,16 @@ const demandPanel = {
       area("--s1", sum("C"), "tozeroy"),
       area("--s4", sum("C", "I"), "tonexty"),
       area("--s6", sum("C", "I", "G"), "tonexty"),
-      { y: sum("Y"), fill: "tonexty", fillcolor: "rgba(0,0,0,0)", line: { color: css("--text-primary"), width: 2 },
-        fillpattern: { shape: "/", fgcolor: css("--s2"), bgcolor: "rgba(0,0,0,0)", size: 7, solidity: 0.3 } },
+      { y: sum("Y"), fill: "tonexty", ...hatch("--s2"), line: { color: css("--text-primary"), width: 2 } },
     ];
   },
   tip: (c, i) => {
     const d = DEMAND[c][i];
     if (!d) return "";
     const v = x => state.unit === "pct" ? `${(100 * x / d.Y).toFixed(1).replace(".", ",")} %` : mdEur(x);
-    const hatch = `;background:repeating-linear-gradient(-45deg,${css("--s2")} 0 2px,transparent 2px 4px)`;
     return swatch("--s1", "Consommation des ménages (C)", v(d.C)) + swatch("--s4", "Investissement (I)", v(d.I)) +
       swatch("--s6", "Consommation publique (G)", v(d.G)) +
-      `<div><span class="sw" style="${hatch.slice(1)}"></span>Exportations − importations (X − M) <b>${v(d.X - d.M)}</b></div>` +
+      hatched("--s2", "Exportations − importations (X − M)", v(d.X - d.M)) +
       `<div class="muted">exportations ${v(d.X)}, importations ${v(d.M)}</div>` +
       swatch("--text-primary", "PIB (Y)", state.unit === "pct" ? mdEur(d.Y) : v(d.Y));
   },
@@ -126,6 +126,37 @@ const demandPanel = {
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
+// Déficit public = déficit primaire + intérêts (% du PIB, 4 trimestres glissants, depuis 2000) : aire du déficit primaire
+// depuis zéro (hachurée vers le bas en cas d'excédent primaire), intérêts empilés au-dessus jusqu'au déficit total (ligne).
+// Seules les périodes connues sont tracées (IE et DE avant 2002 : un point annuel par an, reliés).
+const DEFICIT = Object.fromEntries(ALL_CODES.map(c => [c, DATA.deficit.periods.map((q, i) => {
+  const total = DATA.deficit.series[c][i], j = DATA.burden.periods.indexOf(q), interest = j < 0 ? null : DATA.burden.series[c][j];
+  return total == null || interest == null ? null : { total, interest, primary: +(total - interest).toFixed(2) };
+})]));
+const deficitPanel = {
+  key: "deficit", title: "Déficit public = déficit primaire + intérêts de la dette (% du PIB)", codes: ALL_CODES, zero: true, single: true,
+  x: DATA.deficit.periods.map(windowMid), date: i => windowLabel(DATA.deficit.periods[i]),
+  traces: c => {
+    const idx = DEFICIT[c].flatMap((d, i) => d ? [i] : []), x = idx.map(i => deficitPanel.x[i]);
+    const y = f => idx.map(i => f(DEFICIT[c][i]));
+    return [
+      // bord des aires du déficit primaire tracé une seule fois (par la 3e courbe), pas le long de zéro
+      { x, ...area("--s1", y(d => Math.max(d.primary, 0)), "tozeroy"), line: { width: 0 } },
+      { x, y: y(d => Math.min(d.primary, 0)), fill: "tozeroy", ...hatch("--s1"), line: { width: 0 } },
+      { x, y: y(d => d.primary), line: { color: css("--s1"), width: 1.5 } },   // base des intérêts
+      { x, ...area("--s2", y(d => d.total), "tonexty") },
+      { x, y: y(d => d.total), line: { color: css("--text-primary"), width: 2 } },
+    ];
+  },
+  tip: (c, i) => {
+    const d = DEFICIT[c][i];
+    if (!d) return "";
+    return (d.primary < 0 ? hatched("--s1", "Excédent primaire", pctGDP(-d.primary)) : swatch("--s1", "Déficit primaire", pctGDP(d.primary))) +
+      swatch("--s2", "Intérêts de la dette", pctGDP(d.interest)) +
+      swatch("--text-primary", d.total < 0 ? "Excédent public" : "Déficit public", pctGDP(Math.abs(d.total)));
+  },
+};
+
 const PANELS = [
   { key: "spread", title: "Écart de taux d'emprunt d'État à 10 ans avec l'Allemagne (points de %)", codes: SPREAD_CODES, zero: true,
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} pt (${Math.round(v * 100)} pb)` },
@@ -134,12 +165,7 @@ const PANELS = [
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
-  { key: "deficit", title: "Déficit public (% du PIB)", codes: ALL_CODES, zero: true,
-    connectgaps: true,   // IE et DE avant 2002 : un point annuel par an
-    x: DATA.deficit.periods.map(windowMid), y: c => DATA.deficit.series[c], date: i => windowLabel(DATA.deficit.periods[i]),
-    text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
-  { key: "burden", title: "Intérêts de la dette publique (% du PIB)", codes: ALL_CODES, zero: true, connectgaps: true,
-    x: DATA.burden.periods.map(windowMid), y: c => DATA.burden.series[c], date: i => windowLabel(DATA.burden.periods[i]), text: pctGDP },
+  deficitPanel,
   { key: "qe", title: "Part de la dette publique détenue par l'Eurosystème, achats QE (%)", codes: ALL_CODES,
     x: DATA.qe.periods.map(monthEnd), y: c => DATA.qe.series[c], text: v => `${v.toFixed(1).replace(".", ",")} % de la dette` },
   demandPanel,
@@ -154,8 +180,9 @@ state.order = PANELS.map(p => p.key);
 state.folded = new Set();
 try {
   const saved = JSON.parse(localStorage.getItem("panels"));
-  // panneaux ajoutés depuis la sauvegarde : à la fin
-  if (saved.order.every(k => PANEL[k])) state.order = [...saved.order, ...state.order.filter(k => !saved.order.includes(k))];
+  // panneaux ajoutés depuis la sauvegarde : à la fin ; panneaux supprimés depuis : ignorés
+  const order = saved.order.filter(k => PANEL[k]);
+  state.order = [...order, ...state.order.filter(k => !order.includes(k))];
   state.folded = new Set(saved.folded.filter(k => PANEL[k]));
 } catch {}
 const savePanels = () => { try { localStorage.setItem("panels", JSON.stringify({ order: state.order, folded: [...state.folded] })); } catch {} };
