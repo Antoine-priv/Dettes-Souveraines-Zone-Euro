@@ -16,6 +16,7 @@ for (const c of SPREAD_CODES) {
   spreads[c] = DATA.series[c].map((v, i) => v == null || de[i] == null ? null : +(v - de[i]).toFixed(4));
 }
 const monthDate = m => m + "-15";
+const monthEnd = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).toISOString().slice(0, 10);   // encours fin de mois
 const quarterEnd = q => { const [y, n] = q.split("-Q"); return new Date(Date.UTC(+y, 3 * n, 0)).toISOString().slice(0, 10); };  // dette = encours fin de trimestre
 // Croissance nominale (croissance + inflation) et taux moyens de la dette, alignés sur les trimestres du PIB
 const growth = DATA.growth.series;
@@ -63,6 +64,8 @@ const PANELS = [
     text: v => v < 0 ? `excédent de ${pctGDP(-v)}` : pctGDP(v) },
   { key: "burden", title: "Intérêts de la dette publique (% du PIB)", codes: ALL_CODES, zero: true, connectgaps: true,
     x: DATA.burden.periods.map(windowMid), y: c => DATA.burden.series[c], date: i => windowLabel(DATA.burden.periods[i]), text: pctGDP },
+  { key: "qe", title: "Part de la dette publique détenue par l'Eurosystème, achats QE (%)", codes: ALL_CODES,
+    x: DATA.qe.periods.map(monthEnd), y: c => DATA.qe.series[c], text: v => `${v.toFixed(1).replace(".", ",")} % de la dette` },
   growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),
   growthPanel("growthAll", "Inflation + croissance et taux moyen de toute la dette : État, entreprises, ménages (%)",
     interestAll, "Taux moyen de toute la dette"),
@@ -136,6 +139,14 @@ const EVENTS = [
     "le déficit de 2012 dépasse 10 % du PIB et la dette, encore à 36 % en 2007, grimpe vers 100 %.", "ES"],
   ["2012-07-26", "Whatever it takes", "Mario Draghi promet que la BCE fera « tout ce qu'il faudra » pour sauver l'euro (rachats illimités de dette " +
     "des pays en difficulté, programme OMT). Effet : sans même être utilisée, la promesse suffit ; les spreads refluent et les taux baissent pendant des années."],
+  ["2015-03-09", "QE", "La BCE commence à acheter massivement de la dette publique (programme PSPP, dans le cadre d'achats d'actifs " +
+    "de 60 Md€ par mois) : chaque banque centrale nationale achète surtout la dette de son propre État, en proportion de sa part au capital " +
+    "de la BCE, et la paie en créant de la monnaie de banque centrale. Effet : la part de la dette détenue par l'Eurosystème monte d'environ 5 % " +
+    "à 15-25 % en 2019 (la Grèce, trop mal notée, est exclue) ; les taux 10 ans et les spreads baissent, le taux allemand devient négatif."],
+  ["2023-03-01", "QT", "Resserrement quantitatif : la BCE ne réinvestit plus qu'une partie des titres du programme APP arrivés à échéance, " +
+    "puis plus aucun à partir de juillet 2023 ; même chose pour le PEPP à partir de juillet 2024, complètement fin 2024. Sans rien vendre, " +
+    "l'Eurosystème laisse ainsi fondre son portefeuille. Effet : la part de la dette qu'il détient baisse chaque mois et les États doivent " +
+    "trouver d'autres acheteurs (banques, fonds, ménages, investisseurs étrangers), ce qui pèse sur les taux longs."],
   ["2020-03-18", "Covid", "Confinements et arrêt d'une partie de l'économie. Effet : récession de 2020, déficits records pour soutenir " +
     "entreprises et salariés, bond de la dette ; la BCE rachète massivement de la dette publique (PEPP), ce qui maintient les taux bas. Rebond en 2021."],
   ["2022-07-21", "Hausse des taux BCE", "Face à une inflation proche de 10 %, la BCE relève ses taux pour la première fois depuis 2011 " +

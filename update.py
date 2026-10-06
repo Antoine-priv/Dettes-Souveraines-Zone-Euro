@@ -15,6 +15,8 @@ Finances publiques (Eurostat, administrations publiques S13) :
     annuels depuis 1950 (FMI « Public Finances in Modern History », Global Macro Database) ;
   - dette avant 2000 : chiffres annuels du FMI depuis 1950 ;
   - charge d'intérêts en % du PIB sur 4 trimestres glissants (D41PAY / PIB), annuelle avant 2000 (FMI) ;
+  - part de la dette détenue par l'Eurosystème au titre du QE : achats nets cumulés de titres de chaque État
+    (programmes PSPP depuis mars 2015 et PEPP depuis mars 2020, BCE) / dette au sens de Maastricht ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
     saisonnières — les séries CVS sont incomplètes (Italie absente). Au 4e
@@ -69,6 +71,10 @@ UA = {"User-Agent": "Mozilla/5.0"}
 HIST_START, HIST_END = 1949, 1999
 IMF_URL = "https://www.imf.org/external/datamapper/api/v1/{indicator}"
 GMD_URL = "https://www.globalmacrodata.com/GMD.csv"
+# Achats nets de dette publique de l'Eurosystème (BCE + banques centrales nationales) par pays émetteur, mensuels
+QE_URL = "https://www.ecb.europa.eu/mopo/pdf/{}.csv"
+QE_FILES = {"PSPP": "PSPP_breakdown_history", "PEPP": "PEPP_public_sector_securities_breakdown_history"}
+QE_NAMES = {"GR": "Greece", "IT": "Italy", "ES": "Spain", "PT": "Portugal", "IE": "Ireland", "FR": "France", "DE": "Germany"}
 ISO3 = {"GR": "GRC", "IT": "ITA", "ES": "ESP", "PT": "PRT", "IE": "IRL", "FR": "FRA", "DE": "DEU"}
 OUTPUT_BUDGET = ROOT / "data" / "budget.js"
 BUDGET_START = "2005"
@@ -226,6 +232,31 @@ def fetch_history():
     return out
 
 
+def fetch_qe(name):
+    """{'XX': {'AAAA-MM': achats nets du mois, M€}} : premier tableau du fichier de la BCE (lignes = pays,
+    colonnes = mois au format « 31/03/2015 » ou « Mar-20 », puis le cumul, ignoré)."""
+    rows = list(csv.reader(http(QE_URL.format(QE_FILES[name])).splitlines()))
+    head = next(i for i, r in enumerate(rows) if len(r) > 1 and not r[0].strip() and r[1].strip())
+    months = []
+    for cell in rows[head][1:]:
+        for f in ("%d/%m/%Y", "%b-%y"):
+            try:
+                months.append(datetime.strptime(cell.strip(), f).strftime("%Y-%m"))
+                break
+            except ValueError:
+                pass
+        else:
+            months.append(None)
+    code = {v: k for k, v in QE_NAMES.items()}
+    out = {c: {} for c in COUNTRIES}   # la Grèce n'était pas éligible au PSPP
+    for r in rows[head + 1:]:
+        if r[0].strip() == "Total":   # fin du tableau (les suivants reprennent les pays)
+            break
+        if r[0].strip() in code:
+            out[code[r[0].strip()]] = {m: float(v.replace(",", "")) for m, v in zip(months, r[1:]) if m and v.strip()}
+    return out
+
+
 def download():
     data = {"ecb": {}, "daily": {}, "live": {}, "fetched": datetime.now().strftime("%d/%m/%Y %H:%M")}
     for code, name in COUNTRIES.items():
@@ -247,6 +278,8 @@ def download():
     data["interest_q"] = fetch_eurostat("gov_10q_ggnfa", "1999-Q1", na_item="D41PAY", sector="S13", unit="MIO_EUR", s_adj="NSA")
     data["debt_eur"] = fetch_eurostat("gov_10q_ggdebt", "1999-Q1", na_item="GD", sector="S13", unit="MIO_EUR")
     data["interest_a"] = fetch_eurostat("gov_10a_main", "2000", na_item="D41PAY", sector="S13", unit="PC_GDP")
+    print("  BCE : achats de dette publique (QE)…", flush=True)
+    data["qe"] = {name: fetch_qe(name) for name in QE_FILES}
     print("  Eurostat : intérêts et dette des entreprises et des ménages…", flush=True)
     data["private_interest_q"] = {s: fetch_eurostat("nasq_10_nf_tr", "1999-Q1", na_item="D41", direct="PAID", sector=s,
                                                     unit="CP_MEUR", s_adj="NSA") for s in PRIVATE}
@@ -430,6 +463,36 @@ def interest_burden(data):
     return out
 
 
+def eurosystem_share(data):
+    """{'XX': {'AAAA-MM': %}} part de la dette publique détenue par l'Eurosystème au titre du QE : achats nets
+    cumulés (PSPP + PEPP, au coût d'acquisition, diminué des titres remboursés) / dette de Maastricht en fin de
+    mois, interpolée entre deux fins de trimestre (dernier trimestre connu ensuite). Hors programme SMP (2010-2012)."""
+    out = {}
+    for c in COUNTRIES:
+        bought = [data.get("qe", {}).get(k, {}).get(c, {}) for k in QE_FILES]
+        debt = data.get("debt_eur", {}).get(c, {})
+        ends = sorted((f"{q[:4]}-{3 * int(q[-1]):02d}", v) for q, v in debt.items())   # fins de trimestre
+        out[c], total = {}, 0
+        for m in sorted(set().union(*bought)):
+            total += sum(b.get(m, 0) for b in bought)
+            after = next((i for i, (e, _) in enumerate(ends) if e >= m), None)
+            if after is None:
+                owed = ends[-1][1] if ends else None
+            elif after == 0:
+                continue
+            else:
+                (e0, v0), (e1, v1) = ends[after - 1], ends[after]
+                f = months_apart(e0, m) / months_apart(e0, e1)
+                owed = v0 + f * (v1 - v0)
+            if owed:
+                out[c][m] = 100 * total / owed
+    return out
+
+
+def months_apart(a, b):
+    return (int(b[:4]) - int(a[:4])) * 12 + int(b[5:]) - int(a[5:])
+
+
 def budget(data):
     """Par année : pour chaque sous-secteur, recettes propres par poste et dépenses propres par fonction
     (hors transferts entre administrations), cotisations retraite imputées de chaque fonction,
@@ -494,6 +557,7 @@ def main():
         "interest": public_finances(gr["rate"]),
         "interest_all": public_finances(total_rate(data)),
         "burden": public_finances(interest_burden(data)),
+        "qe": public_finances(eurosystem_share(data)),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
@@ -511,9 +575,9 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden"):
+    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "qe"):
         if periods := payload[key]["periods"]:
-            print(f"Eurostat {key} : {periods[0]} → {periods[-1]}")
+            print(f"{'BCE' if key == 'qe' else 'Eurostat'} {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:
         print(f"Eurostat budget de la France : {years[0]} → {years[-1]}  →  {OUTPUT_BUDGET.relative_to(ROOT)}")
 
