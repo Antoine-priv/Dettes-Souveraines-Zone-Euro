@@ -295,15 +295,6 @@ const INFO = {
     "primaire presque chaque année de 1992 à 2019 : son déficit vient des intérêts ; récessions de 2009 et 2020 : les recettes chutent et " +
     "les plans de soutien gonflent le déficit primaire ; Irlande en 2010 : plus de 30 % du PIB avec le sauvetage des banques ; " +
     "Grèce : excédents primaires exigés par les plans d'aide après 2015 ; la règle européenne fixe le déficit à 3 % du PIB au plus."),
-  qe: explain("Part de la dette de chaque État achetée par l'Eurosystème (BCE et banques centrales nationales) avec ses " +
-    "programmes de rachat : PSPP depuis 2015 (QE) et PEPP depuis 2020 (Covid). La banque centrale achète ces titres aux banques " +
-    "et aux investisseurs en créant de la monnaie (des réserves) ; avec le QT, elle ne réinvestit plus les titres arrivés à " +
-    "échéance : l'État les rembourse et cette monnaie disparaît.",
-    [],
-    "la montée de 2015 à 2018, le bond de 2020-2021 (pic au-delà de 40 % pour l'Allemagne en 2022), puis la baisse continue " +
-    "depuis 2023 (QT) : d'autres acheteurs doivent prendre le relais ; la Grèce, trop mal notée, n'est achetée qu'à partir de " +
-    "2020. Les intérêts versés aux banques centrales nationales reviennent en partie à l'État par leurs bénéfices, mais depuis " +
-    "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte."),
   holdings: explain("Titres de dette publique achetés par l'Eurosystème (la BCE et les banques centrales nationales) et qu'il " +
     "détient encore, selon le programme de rachat : le SMP, rachats ciblés de dette de la Grèce, de l'Irlande, du Portugal, de " +
     "l'Espagne et de l'Italie en pleine crise (2010-2012, environ 220 Md€ au plus haut), compensés par un retrait équivalent de " +
@@ -366,8 +357,6 @@ const PANELS = [
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
   deficitPanel,
-  { key: "qe", title: "Part de la dette publique détenue par l'Eurosystème, achats QE (%)", codes: ALL_CODES,
-    x: DATA.qe.periods.map(monthEnd), y: c => DATA.qe.series[c], text: v => `${v.toFixed(1).replace(".", ",")} % de la dette` },
   holdingsPanel,
   moneyPanel,
   demandPanel,

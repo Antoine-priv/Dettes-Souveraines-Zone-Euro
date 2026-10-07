@@ -15,8 +15,7 @@ Finances publiques (Eurostat, administrations publiques S13) :
     annuels depuis 1950 (FMI « Public Finances in Modern History », Global Macro Database) ;
   - dette avant 2000 : chiffres annuels du FMI depuis 1950 ;
   - charge d'intérêts en % du PIB sur 4 trimestres glissants (D41PAY / PIB), annuelle avant 2000 (FMI) ;
-  - part de la dette détenue par l'Eurosystème au titre du QE : achats nets cumulés de titres de chaque État
-    (programmes PSPP depuis mars 2015 et PEPP depuis mars 2020, BCE) / dette au sens de Maastricht ;
+  - dette publique détenue par l'Eurosystème, par programme (SMP, PSPP, PEPP ; BCE) ;
   - PIB par la demande, Y = C + I + G + (X − M) : consommation des ménages, investissement (formation brute de
     capital), consommation publique, exportations et importations, en euros courants sur 4 trimestres glissants
     (namq_10_gdp) ; avant 2000, chiffres annuels depuis 1950 (Global Macro Database) ;
@@ -526,32 +525,6 @@ def interest_burden(data):
     return out
 
 
-def eurosystem_share(data):
-    """{'XX': {'AAAA-MM': %}} part de la dette publique détenue par l'Eurosystème au titre du QE : achats nets
-    cumulés (PSPP + PEPP, au coût d'acquisition, diminué des titres remboursés) / dette de Maastricht en fin de
-    mois, interpolée entre deux fins de trimestre (dernier trimestre connu ensuite). Hors programme SMP (2010-2012)."""
-    out = {}
-    for c in COUNTRIES:
-        bought = [data.get("qe", {}).get(k, {}).get(c, {}) for k in QE_FILES]
-        debt = data.get("debt_eur", {}).get(c, {})
-        ends = sorted((f"{q[:4]}-{3 * int(q[-1]):02d}", v) for q, v in debt.items())   # fins de trimestre
-        out[c], total = {}, 0
-        for m in sorted(set().union(*bought)):
-            total += sum(b.get(m, 0) for b in bought)
-            after = next((i for i, (e, _) in enumerate(ends) if e >= m), None)
-            if after is None:
-                owed = ends[-1][1] if ends else None
-            elif after == 0:
-                continue
-            else:
-                (e0, v0), (e1, v1) = ends[after - 1], ends[after]
-                f = months_apart(e0, m) / months_apart(e0, e1)
-                owed = v0 + f * (v1 - v0)
-            if owed:
-                out[c][m] = 100 * total / owed
-    return out
-
-
 def money(data):
     """Croissance de M3 sur 12 mois (%) et contribution de chaque contrepartie, en points : flux des 12 derniers mois
     / encours de M3 un an plus tôt. Leur somme est la croissance de M3 ; « other » est le reste (surtout les
@@ -703,7 +676,6 @@ def main():
         "interest": public_finances(gr["rate"]),
         "interest_all": public_finances(total_rate(data)),
         "burden": public_finances(interest_burden(data)),
-        "qe": public_finances(eurosystem_share(data)),
         "demand": demand(data),
         "money": money(data),
         "holdings": qe_holdings(data),
@@ -724,7 +696,7 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "qe", "demand", "money"):
+    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "demand", "money"):
         if periods := payload[key]["periods"]:
             print(f"{'BCE' if key in ('qe', 'money') else 'Eurostat'} {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:
