@@ -232,35 +232,36 @@ const moneyPanel = {
     swatch("--text-primary", "Croissance de M3", pct(DATA.money.m3[i])),
 };
 
-// Dette publique détenue par l'Eurosystème (PSPP + PEPP, Md€), par pays émetteur : aires empilées dans la couleur de
-// chaque pays, l'Allemagne en bas ; autres pays et institutions européennes réunis en haut. Indépendant de la légende.
-const HOLDERS = ["DE", "FR", "IT", "ES", "PT", "IE", "GR", "other"];
+// Dette publique détenue par l'Eurosystème par programme (Md€) : SMP (2010-2012), PSPP (QE), PEPP (Covid), aires empilées,
+// total en ligne. Pour la zone euro entière (autres pays et institutions européennes compris) ou un pays (state.holder,
+// choisi à droite du titre, indépendant de la légende et du pays des autres panneaux).
 const H = DATA.holdings;
-const held = (c, i) => c === "other" ? ["other", "supra"].reduce((s, k) => s + H.PSPP[k][i] + H.PEPP[k][i], 0) : H.PSPP[c][i] + H.PEPP[c][i];
-const heldTotal = i => HOLDERS.reduce((s, c) => s + held(c, i), 0);
+const PROGRAMS = [["SMP", "--s5", "SMP (2010-2012)"], ["PSPP", "--s1", "PSPP : QE"], ["PEPP", "--s2", "PEPP : Covid"]];
+const heldBy = (prog, c, i) => c === "EA"
+  ? (prog === "SMP" ? H.SMP.total?.[i] ?? 0 : Object.values(H[prog]).reduce((s, v) => s + v[i], 0))
+  : H[prog][c]?.[i] ?? 0;
+const holderName = () => state.holder === "EA" ? "zone euro" : DATA.names[state.holder];
 const holdingsPanel = {
-  key: "holdings", title: "Dette publique détenue par l'Eurosystème, par pays (Md€)", codes: ALL_CODES, single: true, place: "Eurosystème",
-  x: H.periods.map(monthEnd), date: i => `fin ${monthYear.format(PANEL.holdings.stamps[i])}`, fromZero: true,
+  key: "holdings", title: "Dette publique détenue par l'Eurosystème, par programme (Md€)", codes: ALL_CODES,
+  single: true, place: holderName, fromZero: true,
+  selects: () => [{ state: "holder", options: [["EA", "Zone euro"], ...ALL_CODES.map(c => [c, DATA.names[c]])] }],
+  x: H.periods.map(monthEnd), date: i => `fin ${monthYear.format(PANEL.holdings.stamps[i])}`,
   traces: () => {
     let acc = H.periods.map(() => 0);
     return [
-      ...HOLDERS.map((c, j) => {
-        acc = acc.map((a, i) => +(a + held(c, i)).toFixed(1));
-        const t = colorArea(c === "other" ? css("--text-muted") : COLOR(c), acc, j ? "tonexty" : "tozeroy");
-        return c === "other" ? { ...t, fillcolor: css("--text-muted") + "4d" } : t;   // gris plus pâle que l'Allemagne
+      ...PROGRAMS.map(([prog, v], j) => {
+        acc = acc.map((a, i) => +(a + heldBy(prog, state.holder, i)).toFixed(2));
+        return area(v, acc, j ? "tonexty" : "tozeroy");
       }),
       { y: acc, line: { color: css("--text-primary"), width: 2 } },
     ];
   },
   tip: (c, i) => {
-    const total = heldTotal(i), share = v => `${mdEur(v)} · ${(100 * v / total).toFixed(1).replace(".", ",")} %`;
-    const supra = H.PSPP.supra[i] + H.PEPP.supra[i];
-    return [...HOLDERS].reverse().map(k => k === "other"
-      ? swatch("--text-muted", "Autres pays et institutions européennes", share(held(k, i))) + `<div class="muted">dont institutions européennes ${mdEur(supra)}</div>`
-      : `<div><span class="sw" style="background:${COLOR(k)}"></span>${DATA.names[k]} <b>${share(held(k, i))}</b></div>`).join("") +
+    const v = PROGRAMS.map(([prog]) => heldBy(prog, state.holder, i)), total = v.reduce((a, b) => a + b, 0);
+    return PROGRAMS.map(([, color, label], j) => v[j] ? swatch(color, label, mdEur(v[j])) : "").reverse().join("") +
       swatch("--text-primary", "Total", mdEur(total)) +
-      `<div class="muted">QE (PSPP) ${mdEur(HOLDERS.reduce((s, k) => s + (k === "other" ? H.PSPP.other[i] + H.PSPP.supra[i] : H.PSPP[k][i]), 0))}, ` +
-      `Covid (PEPP) ${mdEur(HOLDERS.reduce((s, k) => s + (k === "other" ? H.PEPP.other[i] + H.PEPP.supra[i] : H.PEPP[k][i]), 0))}</div>`;
+      (state.holder === "EA" && H.PSPP.supra[i] + H.PEPP.supra[i] > 0
+        ? `<div class="muted">dont institutions européennes ${mdEur(H.PSPP.supra[i] + H.PEPP.supra[i])}</div>` : "");
   },
 };
 
@@ -303,15 +304,17 @@ const INFO = {
     "depuis 2023 (QT) : d'autres acheteurs doivent prendre le relais ; la Grèce, trop mal notée, n'est achetée qu'à partir de " +
     "2020. Les intérêts versés aux banques centrales nationales reviennent en partie à l'État par leurs bénéfices, mais depuis " +
     "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte."),
-  holdings: explain("Titres de dette publique achetés par l'Eurosystème (la BCE et les banques centrales nationales) avec ses " +
-    "programmes de rachat, le QE (PSPP, depuis 2015) et celui de la crise du Covid (PEPP, depuis 2020), et qu'il détient encore, " +
-    "selon le pays qui les a émis. Les achats se répartissent selon la part de chaque pays au capital de la BCE, qui dépend de " +
-    "sa population et de son PIB, d'où le poids de l'Allemagne et de la France ; environ 10 % sont des titres d'institutions " +
-    "européennes. Chaque banque centrale nationale achète surtout la dette de son propre État et en porte l'essentiel du risque.",
+  holdings: explain("Titres de dette publique achetés par l'Eurosystème (la BCE et les banques centrales nationales) et qu'il " +
+    "détient encore, selon le programme de rachat : le SMP, rachats ciblés de dette de la Grèce, de l'Irlande, du Portugal, de " +
+    "l'Espagne et de l'Italie en pleine crise (2010-2012, environ 220 Md€ au plus haut), compensés par un retrait équivalent de " +
+    "liquidités ; le PSPP, cœur du QE, à partir de 2015, réparti selon la part de chaque pays au capital de la BCE ; le PEPP, " +
+    "lancé contre la crise du Covid en mars 2020 (enveloppe de 1 850 Md€), plus souple dans sa répartition et ouvert à la Grèce. " +
+    "Le programme OMT, annoncé en 2012 avec « Whatever it takes », n'a jamais servi.",
     [],
-    "la montée de 2015 à 2018, l'arrêt des achats nets en 2019, la reprise fin 2019 puis le bond de 2020-2021 avec le PEPP, qui " +
-    "a pu s'écarter de la clé de capital au profit de l'Italie et a inclus la Grèce ; le pic d'environ 4 400 Md€ en 2022 ; " +
-    "puis le QT : la BCE ne vend rien, mais ne remplace plus les titres remboursés, et l'encours fond d'environ un quart en quatre ans."),
+    "le SMP fond au fil des remboursements et a presque disparu en 2021 ; le PSPP monte de 2015 à 2018, s'arrête en 2019 et " +
+    "repart fin 2019 ; le PEPP bondit en 2020-2021 et ses achats nets cessent en mars 2022, ceux du PSPP en juillet 2022 ; le total " +
+    "culmine vers 4 400 Md€ pour la zone euro en 2022 ; puis le QT : le PSPP n'est plus réinvesti depuis juillet 2023, le PEPP " +
+    "depuis fin 2024, et l'encours baisse au rythme des remboursements, sans aucune vente."),
   money: explain("La masse monétaire M3 réunit les billets, les dépôts et les placements à court terme des ménages et des " +
     "entreprises de la zone euro. Elle naît quand une banque, ou la banque centrale, accorde un crédit ou achète un titre : " +
     "le prêt crée un dépôt du même montant ; elle disparaît quand le crédit est remboursé. Les aires montrent d'où vient sa " +
@@ -387,6 +390,8 @@ try {
 const savePanels = () => { try { localStorage.setItem("panels", JSON.stringify({ order: state.order, folded: [...state.folded] })); } catch {} };
 state.pick = "FR";   // pays des panneaux « single »
 try { const p = localStorage.getItem("pick"); if (ALL_CODES.includes(p)) state.pick = p; } catch {}
+state.holder = "EA";   // émetteur du panneau de la dette détenue par l'Eurosystème (EA : zone euro)
+try { const h = localStorage.getItem("holder"); if (h === "EA" || ALL_CODES.includes(h)) state.holder = h; } catch {}
 state.unit = "pct";  // unité du panneau du PIB par la demande
 try { const u = localStorage.getItem("unit"); if (UNITS[u]) state.unit = u; } catch {}
 let shown = [];   // panneaux dépliés, dans l'ordre d'affichage
@@ -843,7 +848,8 @@ function showHover(ev, hit) {
   }
   tip.hidden = false;
   if (panel.single) {
-    tip.innerHTML = `<div class="date">${panel.date(i)} · ${panel.place || DATA.names[state.pick]}</div>` + panel.tip(state.pick, i);
+    const place = typeof panel.place === "function" ? panel.place() : panel.place || DATA.names[state.pick];
+    tip.innerHTML = `<div class="date">${panel.date(i)} · ${place}</div>` + panel.tip(state.pick, i);
     hline.hidden = true;
     return placeTip(px, py, s, r);
   }
@@ -887,14 +893,18 @@ function paintTitles(geo) {
     return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
       `<span class="ttl"><button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
       `${PANEL[b.key].title}</span></div>` +
-      (PANEL[b.key].single && !PANEL[b.key].place && !folded ? `<span class="picks" style="top:${b.top + 12}px">` +
-        (PANEL[b.key].units ? `<select class="unit">` + Object.entries(PANEL[b.key].units).map(([u, l]) =>
-          `<option value="${u}"${u === state.unit ? " selected" : ""}>${l}</option>`).join("") + "</select>" : "") +
-        `<select class="pick">` + ALL_CODES.map(c => `<option value="${c}"${c === state.pick ? " selected" : ""}>${DATA.names[c]}</option>`).join("") +
-        "</select></span>" : "");
+      (selectsOf(PANEL[b.key]).length && !folded ? `<span class="picks" style="top:${b.top + 12}px">` +
+        selectsOf(PANEL[b.key]).map(({ state: k, options }) => `<select data-state="${k}">` + options.map(([v, l]) =>
+          `<option value="${v}"${v === state[k] ? " selected" : ""}>${l}</option>`).join("") + "</select>").join("") + "</span>" : "");
   }).join("");
   titles.geo = geo;
 }
+// Listes de choix à droite du titre : {state: clé de state (mémorisée dans le navigateur), options: [[valeur, libellé]]}.
+// Par défaut, un panneau à un seul pays a le choix du pays (state.pick), précédé de l'unité s'il en propose.
+const selectsOf = panel => panel.selects ? panel.selects() : panel.single && !panel.place
+  ? [...(panel.units ? [{ state: "unit", options: Object.entries(panel.units) }] : []),
+    { state: "pick", options: ALL_CODES.map(c => [c, DATA.names[c]]) }]
+  : [];
 // Repli et dépliage immédiats, sans animation
 let busyFold = false;
 async function toggleFold(key) {
@@ -907,7 +917,7 @@ async function toggleFold(key) {
   busyFold = false;
 }
 titles.addEventListener("change", ev => {
-  const key = ev.target.matches(".pick") ? "pick" : ev.target.matches(".unit") ? "unit" : null;
+  const key = ev.target.dataset.state;
   if (!key) return;
   state[key] = ev.target.value;
   try { localStorage.setItem(key, state[key]); } catch {}

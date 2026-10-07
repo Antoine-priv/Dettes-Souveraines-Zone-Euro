@@ -91,6 +91,8 @@ MONEY = {
 }
 QE_URL = "https://www.ecb.europa.eu/mopo/pdf/{}.csv"
 QE_FILES = {"PSPP": "PSPP_breakdown_history", "PEPP": "PEPP_public_sector_securities_breakdown_history"}
+# Programme SMP (2010-2012) : encours en fin d'année par pays (valeur comptable, Md€), depuis fin 2012
+SMP_URL = "https://www.ecb.europa.eu/mopo/pdf/SMP_breakdown_history.csv"
 QE_NAMES = {"GR": "Greece", "IT": "Italy", "ES": "Spain", "PT": "Portugal", "IE": "Ireland", "FR": "France", "DE": "Germany"}
 # Composantes du PIB par la demande : postes trimestriels d'Eurostat (namq_10_gdp) et colonnes annuelles de la GMD
 DEMAND = {"C": "P31_S14_S15", "I": "P5G", "G": "P3_S13", "X": "P6", "M": "P7"}
@@ -287,6 +289,21 @@ def fetch_qe(name):
     return out
 
 
+def fetch_smp():
+    """{'XX'|'total': {'AAAA': Md€ en fin d'année}} : lignes « Book value » du fichier de la BCE (une ligne par pays,
+    dont le nom figure sur la ligne « Nominal amount » qui la précède)."""
+    rows = list(csv.reader(http(SMP_URL).splitlines()))
+    years = next(r for r in rows if len(r) > 2 and r[2].strip().isdigit())
+    code = {v: k for k, v in QE_NAMES.items()} | {"Total": "total"}
+    out, name = {}, None
+    for r in rows:
+        if r and r[0].strip():
+            name = code.get(r[0].strip().lstrip("\ufeff"))
+        if name and len(r) > 2 and r[1].strip().startswith("Book value"):
+            out[name] = {y.strip(): float(v) for y, v in zip(years[2:], r[2:]) if y.strip() and v.strip()}
+    return out
+
+
 def fetch_bsi(key):
     """{'AAAA-MM': valeur} d'une série mensuelle des bilans bancaires de la BCE (millions d'euros)."""
     return {r["TIME_PERIOD"]: float(r["OBS_VALUE"])
@@ -318,6 +335,7 @@ def download():
     data["interest_a"] = fetch_eurostat("gov_10a_main", "2000", na_item="D41PAY", sector="S13", unit="PC_GDP")
     print("  BCE : achats de dette publique (QE)…", flush=True)
     data["qe"] = {name: fetch_qe(name) for name in QE_FILES}
+    data["smp"] = fetch_smp()
     print("  BCE : masse monétaire M3 et ses contreparties…", flush=True)
     data["money"] = {k: fetch_bsi(key) for k, key in MONEY.items()}
     print("  Eurostat : intérêts et dette des entreprises et des ménages…", flush=True)
@@ -563,11 +581,28 @@ def shift_month(m, k):
 
 
 def qe_holdings(data):
-    """Encours de dette publique détenue par l'Eurosystème au titre du QE, par émetteur, en Md€ (achats nets cumulés,
-    au coût d'acquisition) : {'periods': ['AAAA-MM'], 'PSPP'|'PEPP': {'XX'|'other'|'supra': [...]}}."""
+    """Encours de dette publique détenue par l'Eurosystème par programme et par émetteur, en Md€, depuis fin 2012 :
+    PSPP et PEPP (achats nets cumulés, au coût d'acquisition), SMP (valeur comptable en fin d'année, interpolée
+    linéairement entre deux fins d'année, dernière valeur ensuite).
+    {'periods': ['AAAA-MM'], 'PSPP'|'PEPP': {'XX'|'other'|'supra': [...]}, 'SMP': {'XX'|'total': [...]}}"""
     qe = data.get("qe", {})
     periods = sorted(set().union(*(v for prog in qe.values() for v in prog.values())))
-    out = {}
+    periods = [shift_month(periods[0], -k) for k in range(months_apart("2012-12", periods[0]), 0, -1)] + periods
+    smp = {}
+    for c, years in data.get("smp", {}).items():
+        ends = sorted((f"{y}-12", v) for y, v in years.items())
+        smp[c] = []
+        for m in periods:
+            after = next((i for i, (e, _) in enumerate(ends) if e >= m), None)
+            if after is None:
+                v = ends[-1][1]
+            elif ends[after][0] == m or after == 0:
+                v = ends[after][1]
+            else:
+                (e0, v0), (e1, v1) = ends[after - 1], ends[after]
+                v = v0 + (v1 - v0) * months_apart(e0, m) / months_apart(e0, e1)
+            smp[c].append(round(v, 2))
+    out = {"SMP": smp}
     for prog in QE_FILES:
         out[prog] = {}
         for c in (*COUNTRIES, "other", "supra"):
