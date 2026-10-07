@@ -198,7 +198,6 @@ const deficitPanel = {
 // Explications affichées au survol d'un titre : ce que montre le graphique, formules, ce qu'il faut y observer
 const explain = (what, formulas, watch) => `<div>${what}</div>` + formulas.map(f => `<div class="f">${f}</div>`).join("") +
   `<p><b>À observer :</b> ${watch}</p>`;
-const SNOWBALL = "Δd ≈ (r − g) / (1 + g) × d<sub>t−1</sub> + déficit primaire (% du PIB)";
 // Masse monétaire M3 de la zone euro (un seul tracé, sans choix du pays) : croissance sur 12 mois (ligne) et contribution
 // de chaque source de création monétaire, empilées au-dessus de zéro si elles sont positives, en dessous (hachurées)
 // sinon. Valeurs sur 12 mois glissants, placées au milieu de leur période comme les autres flux.
@@ -268,20 +267,20 @@ const holdingsPanel = {
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
-    ["écart = taux 10 ans du pays − taux 10 ans allemand"],
+    [],
     "presque nul de 1999 à 2008, comme si toutes les dettes se valaient ; envolée de 2010 à 2012 (Grèce jusqu'à 27 %, " +
     "Portugal 12, Irlande près de 10, Espagne et Italie plus de 5) ; reflux après « Whatever it takes » puis avec le QE ; " +
     "poussée italienne en 2018 ; depuis 2024, la France s'écarte de l'Allemagne avec l'instabilité politique et budgétaire, " +
     "jusqu'à rejoindre l'Italie."),
   rate: explain("Taux auquel l'État emprunte aujourd'hui pour 10 ans sur les marchés. Il ne s'applique qu'aux nouveaux emprunts : " +
     "le coût moyen de toute la dette (graphique « taux moyen ») ne le suit que lentement, au fil des renouvellements.",
-    ["taux 10 ans ≈ taux courts attendus sur 10 ans (politique de la BCE) + prime de terme + prime de risque du pays"],
+    [],
     "la longue baisse de 2000 à 2020 (inflation faible, taux de la BCE jusqu'à −0,5 %, QE), jusqu'à des taux négatifs en " +
     "Allemagne dès 2016 et brièvement en France en 2019-2020 : les investisseurs payaient pour prêter ; puis la remontée brutale " +
     "de 2022 avec l'inflation et la hausse des taux de la BCE."),
   debt: explain("Dette brute de toutes les administrations publiques (État, collectivités locales, sécurité sociale), au sens " +
     "de Maastricht, en fin de trimestre, rapportée au PIB des 4 derniers trimestres.",
-    [SNOWBALL, "d : dette en % du PIB ; r : taux moyen de la dette ; g : croissance nominale du PIB"],
+    ["ΔD = r × D<sub>t−1</sub> + déficit primaire", "D : dette en euros ; r : taux moyen de la dette"],
     "la dette héritée de la guerre fond pendant les Trente Glorieuses (France : 40 % du PIB en 1950, 15 % en 1974) car r < g ; " +
     "elle remonte dans les années 1980-1990 (taux réels élevés, r > g) ; chaque crise (2009, 2020) la fait monter d'une marche " +
     "qui ne redescend guère ; restructuration grecque en 2012 ; Irlande : de 101 % à 74 % du PIB en 2015, surtout à cause du " +
@@ -289,8 +288,7 @@ const INFO = {
   deficit: explain("Ce que les administrations publiques dépensent de plus qu'elles ne perçoivent sur un an, en % du PIB. " +
     "Le déficit primaire exclut les intérêts : c'est la partie qui " +
     "dépend des choix budgétaires de l'année.",
-    ["déficit = déficit primaire + intérêts", "déficit primaire = dépenses hors intérêts − recettes",
-      "déficit primaire qui stabilise la dette = (g − r) / (1 + g) × d"],
+    ["g > r"],
     "si r > g, il faut un excédent primaire pour que la dette cesse de monter en % du PIB ; l'Italie dégage un excédent " +
     "primaire presque chaque année de 1992 à 2019 : son déficit vient des intérêts ; récessions de 2009 et 2020 : les recettes chutent et " +
     "les plans de soutien gonflent le déficit primaire ; Irlande en 2010 : plus de 30 % du PIB avec le sauvetage des banques ; " +
@@ -332,8 +330,7 @@ const INFO = {
   growth: explain("Croissance nominale du PIB (g, ligne pleine) décomposée en inflation (prix du PIB) et croissance réelle " +
     "(volumes), comparée au taux moyen payé sur la dette publique (r, pointillés). Fond rouge : r > g, la dette fait boule de " +
     "neige ; fond bleu : r < g, la croissance allège son poids.",
-    ["1 + g = (1 + croissance réelle) × (1 + inflation), soit g ≈ croissance réelle + inflation",
-      "r = intérêts versés sur un an / dette un an plus tôt", SNOWBALL],
+    ["g > r"],
     "les Trente Glorieuses : croissance et inflation fortes, r bien plus bas, la dette fond ; les années 1980-1990 : la " +
     "désinflation fait chuter g alors que r reste haut, la dette grossit d'elle-même ; de 2012 à 2021, r baisse lentement à " +
     "mesure que la dette est renouvelée à taux bas ; en 2022-2023, l'inflation fait bondir g alors que r ne suit qu'avec retard " +
