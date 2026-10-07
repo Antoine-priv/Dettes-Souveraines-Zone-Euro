@@ -288,7 +288,7 @@ const INFO = {
   deficit: explain("Ce que les administrations publiques dépensent de plus qu'elles ne perçoivent sur un an, en % du PIB. " +
     "Le déficit primaire exclut les intérêts : c'est la partie qui " +
     "dépend des choix budgétaires de l'année.",
-    ["g > r"],
+    [],
     "si r > g, il faut un excédent primaire pour que la dette cesse de monter en % du PIB ; l'Italie dégage un excédent " +
     "primaire presque chaque année de 1992 à 2019 : son déficit vient des intérêts ; récessions de 2009 et 2020 : les recettes chutent et " +
     "les plans de soutien gonflent le déficit primaire ; Irlande en 2010 : plus de 30 % du PIB avec le sauvetage des banques ; " +
@@ -337,8 +337,7 @@ const INFO = {
     "(la dette française a une durée moyenne d'environ 8 ans)."),
   growthAll: explain("Même croissance nominale (g), comparée cette fois au taux moyen de toute la dette de l'économie hors " +
     "banques et assurances : administrations, entreprises non financières et ménages (r).",
-    ["r = intérêts versés par les entreprises, les ménages et l'État / leurs titres de dette et crédits un an plus tôt",
-      "1 + g = (1 + croissance réelle) × (1 + inflation)"],
+    [],
     "ce taux suit les taux de la BCE bien plus vite que celui de l'État : beaucoup de crédits aux entreprises, et en Espagne " +
     "et au Portugal la plupart des prêts immobiliers, sont à taux variable (indexés sur l'Euribor), alors que l'État emprunte " +
     "à long terme et à taux fixe. Il plonge donc après 2012 (Espagne : 2,6 % contre 4,2 % pour l'État) et remonte plus vite " +
