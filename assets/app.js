@@ -41,7 +41,8 @@ const pctGDP = v => `${v.toFixed(1).replace(".", ",")} % du PIB`;
 
 // Panneaux à un seul pays (state.pick, choisi à droite du titre, commun à ces panneaux), indépendamment de la légende.
 // traces(c) : courbes du pays c ; aire colorée remplie jusqu'à zéro ou jusqu'à la courbe précédente.
-const area = (v, y, fill) => ({ y, fill, fillcolor: css(v) + "8c", line: { color: css(v), width: 1.5 } });
+const colorArea = (color, y, fill) => ({ y, fill, fillcolor: color + "8c", line: { color, width: 1.5 } });
+const area = (v, y, fill) => colorArea(css(v), y, fill);
 const swatch = (v, l, x, style = "") => `<div><span class="sw${style}" style="background:${css(v)}"></span>${l} <b>${x}</b></div>`;
 const hatched = (v, l, x) => `<div><span class="sw" style="background:repeating-linear-gradient(-45deg,${css(v)} 0 2px,transparent 2px 4px)"></span>${l} <b>${x}</b></div>`;
 const hatch = v => ({ fillcolor: "rgba(0,0,0,0)", fillpattern: { shape: "/", fgcolor: css(v), bgcolor: "rgba(0,0,0,0)", size: 7, solidity: 0.3 } });
@@ -231,6 +232,38 @@ const moneyPanel = {
     swatch("--text-primary", "Croissance de M3", pct(DATA.money.m3[i])),
 };
 
+// Dette publique détenue par l'Eurosystème (PSPP + PEPP, Md€), par pays émetteur : aires empilées dans la couleur de
+// chaque pays, l'Allemagne en bas ; autres pays et institutions européennes réunis en haut. Indépendant de la légende.
+const HOLDERS = ["DE", "FR", "IT", "ES", "PT", "IE", "GR", "other"];
+const H = DATA.holdings;
+const held = (c, i) => c === "other" ? ["other", "supra"].reduce((s, k) => s + H.PSPP[k][i] + H.PEPP[k][i], 0) : H.PSPP[c][i] + H.PEPP[c][i];
+const heldTotal = i => HOLDERS.reduce((s, c) => s + held(c, i), 0);
+const holdingsPanel = {
+  key: "holdings", title: "Dette publique détenue par l'Eurosystème, par pays (Md€)", codes: ALL_CODES, single: true, place: "Eurosystème",
+  x: H.periods.map(monthEnd), date: i => `fin ${monthYear.format(PANEL.holdings.stamps[i])}`, fromZero: true,
+  traces: () => {
+    let acc = H.periods.map(() => 0);
+    return [
+      ...HOLDERS.map((c, j) => {
+        acc = acc.map((a, i) => +(a + held(c, i)).toFixed(1));
+        const t = colorArea(c === "other" ? css("--text-muted") : COLOR(c), acc, j ? "tonexty" : "tozeroy");
+        return c === "other" ? { ...t, fillcolor: css("--text-muted") + "4d" } : t;   // gris plus pâle que l'Allemagne
+      }),
+      { y: acc, line: { color: css("--text-primary"), width: 2 } },
+    ];
+  },
+  tip: (c, i) => {
+    const total = heldTotal(i), share = v => `${mdEur(v)} · ${(100 * v / total).toFixed(1).replace(".", ",")} %`;
+    const supra = H.PSPP.supra[i] + H.PEPP.supra[i];
+    return [...HOLDERS].reverse().map(k => k === "other"
+      ? swatch("--text-muted", "Autres pays et institutions européennes", share(held(k, i))) + `<div class="muted">dont institutions européennes ${mdEur(supra)}</div>`
+      : `<div><span class="sw" style="background:${COLOR(k)}"></span>${DATA.names[k]} <b>${share(held(k, i))}</b></div>`).join("") +
+      swatch("--text-primary", "Total", mdEur(total)) +
+      `<div class="muted">QE (PSPP) ${mdEur(HOLDERS.reduce((s, k) => s + (k === "other" ? H.PSPP.other[i] + H.PSPP.supra[i] : H.PSPP[k][i]), 0))}, ` +
+      `Covid (PEPP) ${mdEur(HOLDERS.reduce((s, k) => s + (k === "other" ? H.PEPP.other[i] + H.PEPP.supra[i] : H.PEPP[k][i]), 0))}</div>`;
+  },
+};
+
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
@@ -270,6 +303,15 @@ const INFO = {
     "depuis 2023 (QT) : d'autres acheteurs doivent prendre le relais ; la Grèce, trop mal notée, n'est achetée qu'à partir de " +
     "2020. Les intérêts versés aux banques centrales nationales reviennent en partie à l'État par leurs bénéfices, mais depuis " +
     "la hausse des taux de 2022 elles rémunèrent les réserves des banques plus cher que ne leur rapportent ces titres et sont en perte."),
+  holdings: explain("Titres de dette publique achetés par l'Eurosystème (la BCE et les banques centrales nationales) avec ses " +
+    "programmes de rachat, le QE (PSPP, depuis 2015) et celui de la crise du Covid (PEPP, depuis 2020), et qu'il détient encore, " +
+    "selon le pays qui les a émis. Les achats se répartissent selon la part de chaque pays au capital de la BCE, qui dépend de " +
+    "sa population et de son PIB, d'où le poids de l'Allemagne et de la France ; environ 10 % sont des titres d'institutions " +
+    "européennes. Chaque banque centrale nationale achète surtout la dette de son propre État et en porte l'essentiel du risque.",
+    [],
+    "la montée de 2015 à 2018, l'arrêt des achats nets en 2019, la reprise fin 2019 puis le bond de 2020-2021 avec le PEPP, qui " +
+    "a pu s'écarter de la clé de capital au profit de l'Italie et a inclus la Grèce ; le pic d'environ 4 400 Md€ en 2022 ; " +
+    "puis le QT : la BCE ne vend rien, mais ne remplace plus les titres remboursés, et l'encours fond d'environ un quart en quatre ans."),
   money: explain("La masse monétaire M3 réunit les billets, les dépôts et les placements à court terme des ménages et des " +
     "entreprises de la zone euro. Elle naît quand une banque, ou la banque centrale, accorde un crédit ou achète un titre : " +
     "le prêt crée un dépôt du même montant ; elle disparaît quand le crédit est remboursé. Les aires montrent d'où vient sa " +
@@ -323,6 +365,7 @@ const PANELS = [
   deficitPanel,
   { key: "qe", title: "Part de la dette publique détenue par l'Eurosystème, achats QE (%)", codes: ALL_CODES,
     x: DATA.qe.periods.map(monthEnd), y: c => DATA.qe.series[c], text: v => `${v.toFixed(1).replace(".", ",")} % de la dette` },
+  holdingsPanel,
   moneyPanel,
   demandPanel,
   growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),

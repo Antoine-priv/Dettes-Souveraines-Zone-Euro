@@ -255,8 +255,9 @@ def fetch_history():
 
 
 def fetch_qe(name):
-    """{'XX': {'AAAA-MM': achats nets du mois, M€}} : premier tableau du fichier de la BCE (lignes = pays,
-    colonnes = mois au format « 31/03/2015 » ou « Mar-20 », puis le cumul, ignoré)."""
+    """{'XX'|'other'|'supra': {'AAAA-MM': achats nets du mois, M€}} : premier tableau du fichier de la BCE (lignes = pays,
+    colonnes = mois au format « 31/03/2015 » ou « Mar-20 », puis le cumul, ignoré) ; 'other' : somme des autres pays,
+    'supra' : institutions européennes (« Supranationals »)."""
     rows = list(csv.reader(http(QE_URL.format(QE_FILES[name])).splitlines()))
     head = next(i for i, r in enumerate(rows) if len(r) > 1 and not r[0].strip() and r[1].strip())
     months = []
@@ -270,12 +271,19 @@ def fetch_qe(name):
         else:
             months.append(None)
     code = {v: k for k, v in QE_NAMES.items()}
-    out = {c: {} for c in COUNTRIES}   # la Grèce n'était pas éligible au PSPP
+    out = {c: {} for c in (*COUNTRIES, "other", "supra")}   # la Grèce n'était pas éligible au PSPP
     for r in rows[head + 1:]:
-        if r[0].strip() == "Total":   # fin du tableau (les suivants reprennent les pays)
+        name = r[0].strip()
+        if name == "Total":   # fin du tableau (les suivants reprennent les pays)
             break
-        if r[0].strip() in code:
-            out[code[r[0].strip()]] = {m: float(v.replace(",", "")) for m, v in zip(months, r[1:]) if m and v.strip()}
+        if not name:
+            continue
+        values = {m: float(v.replace(",", "")) for m, v in zip(months, r[1:]) if m and v.strip()}
+        if name in code or name == "Supranationals":
+            out[code.get(name, "supra")] = values
+        else:
+            for m, v in values.items():
+                out["other"][m] = out["other"].get(m, 0) + v
     return out
 
 
@@ -554,6 +562,23 @@ def shift_month(m, k):
     return f"{n // 12}-{n % 12 + 1:02d}"
 
 
+def qe_holdings(data):
+    """Encours de dette publique détenue par l'Eurosystème au titre du QE, par émetteur, en Md€ (achats nets cumulés,
+    au coût d'acquisition) : {'periods': ['AAAA-MM'], 'PSPP'|'PEPP': {'XX'|'other'|'supra': [...]}}."""
+    qe = data.get("qe", {})
+    periods = sorted(set().union(*(v for prog in qe.values() for v in prog.values())))
+    out = {}
+    for prog in QE_FILES:
+        out[prog] = {}
+        for c in (*COUNTRIES, "other", "supra"):
+            flows, total, cumul = qe.get(prog, {}).get(c, {}), 0, []
+            for m in periods:
+                total += flows.get(m, 0)
+                cumul.append(round(total / 1000, 1))
+            out[prog][c] = cumul
+    return {"periods": periods, **out}
+
+
 def months_apart(a, b):
     return (int(b[:4]) - int(a[:4])) * 12 + int(b[5:]) - int(a[5:])
 
@@ -646,6 +671,7 @@ def main():
         "qe": public_finances(eurosystem_share(data)),
         "demand": demand(data),
         "money": money(data),
+        "holdings": qe_holdings(data),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
