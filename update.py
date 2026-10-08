@@ -91,6 +91,7 @@ MONEY = {
 QE_URL = "https://www.ecb.europa.eu/mopo/pdf/{}.csv"
 QE_FILES = {"PSPP": "PSPP_breakdown_history", "PEPP": "PEPP_public_sector_securities_breakdown_history"}
 # Programme SMP (2010-2012) : encours en fin d'année par pays (valeur comptable, Md€), depuis fin 2012
+EURO_AREA = "EA21"   # code Eurostat de la zone euro actuelle
 SMP_URL = "https://www.ecb.europa.eu/mopo/pdf/SMP_breakdown_history.csv"
 QE_NAMES = {"GR": "Greece", "IT": "Italy", "ES": "Spain", "PT": "Portugal", "IE": "Ireland", "FR": "France", "DE": "Germany"}
 # Composantes du PIB par la demande : postes trimestriels d'Eurostat (namq_10_gdp) et colonnes annuelles de la GMD
@@ -195,10 +196,10 @@ def fetch_tradingview_live():
     return {r["s"].split(":")[1][:2]: r["d"][0] for r in rows if r["d"][0] is not None}
 
 
-def fetch_eurostat(dataset, start, **filters):
-    """{'XX': {période: valeur}} pour tous les pays — période 'AAAA' ou 'AAAA-Qn'.
+def fetch_eurostat(dataset, start, countries=COUNTRIES, **filters):
+    """{'XX': {période: valeur}} pour tous les pays (ou ceux de countries, ex. ['EA21']) — période 'AAAA' ou 'AAAA-Qn'.
     Les filtres doivent réduire toutes les dimensions à une valeur, sauf geo et time."""
-    geos = [EUROSTAT_GEO.get(c, c) for c in COUNTRIES]
+    geos = [EUROSTAT_GEO.get(c, c) for c in countries]
     query = urllib.parse.urlencode(
         [("format", "JSON"), ("sinceTimePeriod", start), *filters.items()] + [("geo", g) for g in geos]
     )
@@ -206,8 +207,8 @@ def fetch_eurostat(dataset, start, **filters):
     # JSON-stat : index à plat sur les dimensions (seules geo et time ont plusieurs valeurs)
     geo = {i: g for g, i in d["dimension"]["geo"]["category"]["index"].items()}
     time = {i: t for t, i in d["dimension"]["time"]["category"]["index"].items()}
-    code = {EUROSTAT_GEO.get(c, c): c for c in COUNTRIES}
-    out = {c: {} for c in COUNTRIES}
+    code = {EUROSTAT_GEO.get(c, c): c for c in countries}
+    out = {c: {} for c in countries}
     for k, v in d["value"].items():
         g, t = divmod(int(k), len(time))
         out[code[geo[g]]][time[t]] = v
@@ -335,6 +336,8 @@ def download():
     print("  BCE : achats de dette publique (QE)…", flush=True)
     data["qe"] = {name: fetch_qe(name) for name in QE_FILES}
     data["smp"] = fetch_smp()
+    # dette de toute la zone euro (21 pays, composition actuelle sur tout le passé), pour la part détenue par l'Eurosystème
+    data["debt_ea"] = fetch_eurostat("gov_10q_ggdebt", "2012-Q1", [EURO_AREA], na_item="GD", sector="S13", unit="MIO_EUR")[EURO_AREA]
     print("  BCE : masse monétaire M3 et ses contreparties…", flush=True)
     data["money"] = {k: fetch_bsi(key) for k, key in MONEY.items()}
     print("  Eurostat : intérêts et dette des entreprises et des ménages…", flush=True)
@@ -557,7 +560,9 @@ def qe_holdings(data):
     """Encours de dette publique détenue par l'Eurosystème par programme et par émetteur, en Md€, depuis fin 2012 :
     PSPP et PEPP (achats nets cumulés, au coût d'acquisition), SMP (valeur comptable en fin d'année, interpolée
     linéairement entre deux fins d'année, dernière valeur ensuite).
-    {'periods': ['AAAA-MM'], 'PSPP'|'PEPP': {'XX'|'other'|'supra': [...]}, 'SMP': {'XX'|'total': [...]}}"""
+    Avec la dette publique au sens de Maastricht en fin de mois (Md€, interpolée entre deux fins de trimestre, dernier
+    trimestre connu ensuite) de chaque pays et de la zone euro ('EA'), pour exprimer ces encours en % de la dette.
+    {'periods': ['AAAA-MM'], 'PSPP'|'PEPP': {'XX'|'other'|'supra': [...]}, 'SMP': {'XX'|'total': [...]}, 'debt': {'XX'|'EA': [...]}}"""
     qe = data.get("qe", {})
     periods = sorted(set().union(*(v for prog in qe.values() for v in prog.values())))
     periods = [shift_month(periods[0], -k) for k in range(months_apart("2012-12", periods[0]), 0, -1)] + periods
@@ -575,7 +580,9 @@ def qe_holdings(data):
                 (e0, v0), (e1, v1) = ends[after - 1], ends[after]
                 v = v0 + (v1 - v0) * months_apart(e0, m) / months_apart(e0, e1)
             smp[c].append(round(v, 2))
-    out = {"SMP": smp}
+    debts = {**{c: data.get("debt_eur", {}).get(c, {}) for c in COUNTRIES}, "EA": data.get("debt_ea", {})}
+    out = {"SMP": smp, "debt": {c: [None if (v := month_end_value(d, m)) is None else round(v / 1000, 1) for m in periods]
+                                for c, d in debts.items()}}
     for prog in QE_FILES:
         out[prog] = {}
         for c in (*COUNTRIES, "other", "supra"):
@@ -585,6 +592,20 @@ def qe_holdings(data):
                 cumul.append(round(total / 1000, 1))
             out[prog][c] = cumul
     return {"periods": periods, **out}
+
+
+def month_end_value(quarterly, m):
+    """Encours en fin du mois m, interpolé linéairement entre deux fins de trimestre ; dernier trimestre connu ensuite."""
+    ends = sorted((f"{q[:4]}-{3 * int(q[-1]):02d}", v) for q, v in quarterly.items())
+    after = next((i for i, (e, _) in enumerate(ends) if e >= m), None)
+    if after is None:
+        return ends[-1][1] if ends else None
+    if ends[after][0] == m:
+        return ends[after][1]
+    if after == 0:
+        return None
+    (e0, v0), (e1, v1) = ends[after - 1], ends[after]
+    return v0 + (v1 - v0) * months_apart(e0, m) / months_apart(e0, e1)
 
 
 def months_apart(a, b):

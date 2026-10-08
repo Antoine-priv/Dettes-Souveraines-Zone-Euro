@@ -231,17 +231,19 @@ const moneyPanel = {
     swatch("--text-primary", "Croissance de M3", pct(DATA.money.m3[i])),
 };
 
-// Dette publique détenue par l'Eurosystème par programme (Md€) : SMP (2010-2012), PSPP (QE), PEPP (Covid), aires empilées,
-// total en ligne. Pour la zone euro entière (autres pays et institutions européennes compris) ou un pays (state.holder,
-// choisi à droite du titre, indépendant de la légende et du pays des autres panneaux).
+// Dette publique détenue par l'Eurosystème par programme, en % de la dette publique : SMP (2010-2012), PSPP (QE),
+// PEPP (Covid), aires empilées, total en ligne. Pour la zone euro (tous les États, sans les titres des institutions
+// européennes, rapportés à la dette de la zone) ou un pays (state.holder, choisi à droite du titre, indépendant de la
+// légende et du pays des autres panneaux). Dette en fin de mois interpolée entre deux fins de trimestre (update.py).
 const H = DATA.holdings;
 const PROGRAMS = [["SMP", "--s5", "SMP (2010-2012)"], ["PSPP", "--s1", "PSPP : QE"], ["PEPP", "--s2", "PEPP : Covid"]];
-const heldBy = (prog, c, i) => c === "EA"
-  ? (prog === "SMP" ? H.SMP.total?.[i] ?? 0 : Object.values(H[prog]).reduce((s, v) => s + v[i], 0))
+const heldBy = (prog, c, i) => c === "EA"   // Md€
+  ? (prog === "SMP" ? H.SMP.total?.[i] ?? 0 : Object.entries(H[prog]).reduce((s, [k, v]) => k === "supra" ? s : s + v[i], 0))
   : H[prog][c]?.[i] ?? 0;
+const heldShare = (prog, c, i) => { const d = H.debt[c][i]; return d ? 100 * heldBy(prog, c, i) / d : null; };
 const holderName = () => state.holder === "EA" ? "zone euro" : DATA.names[state.holder];
 const holdingsPanel = {
-  key: "holdings", title: "Dette publique détenue par l'Eurosystème, par programme (Md€)", codes: ALL_CODES,
+  key: "holdings", title: "Dette publique détenue par l'Eurosystème, par programme (% de la dette publique)", codes: ALL_CODES,
   single: true, place: holderName, fromZero: true,
   selects: () => [{ state: "holder", options: [["EA", "Zone euro"], ...ALL_CODES.map(c => [c, DATA.names[c]])] }],
   x: H.periods.map(monthEnd), date: i => `fin ${monthYear.format(PANEL.holdings.stamps[i])}`,
@@ -249,18 +251,19 @@ const holdingsPanel = {
     let acc = H.periods.map(() => 0);
     return [
       ...PROGRAMS.map(([prog, v], j) => {
-        acc = acc.map((a, i) => +(a + heldBy(prog, state.holder, i)).toFixed(2));
+        acc = acc.map((a, i) => a == null || H.debt[state.holder][i] == null ? null : +(a + heldShare(prog, state.holder, i)).toFixed(2));
         return area(v, acc, j ? "tonexty" : "tozeroy");
       }),
       { y: acc, line: { color: css("--text-primary"), width: 2 } },
     ];
   },
   tip: (c, i) => {
-    const v = PROGRAMS.map(([prog]) => heldBy(prog, state.holder, i)), total = v.reduce((a, b) => a + b, 0);
-    return PROGRAMS.map(([, color, label], j) => v[j] ? swatch(color, label, mdEur(v[j])) : "").reverse().join("") +
-      swatch("--text-primary", "Total", mdEur(total)) +
-      (state.holder === "EA" && H.PSPP.supra[i] + H.PEPP.supra[i] > 0
-        ? `<div class="muted">dont institutions européennes ${mdEur(H.PSPP.supra[i] + H.PEPP.supra[i])}</div>` : "");
+    const h = state.holder, debt = H.debt[h][i];
+    if (!debt) return "";
+    const v = PROGRAMS.map(([prog]) => heldBy(prog, h, i)), total = v.reduce((a, b) => a + b, 0);
+    const share = x => `${(100 * x / debt).toFixed(1).replace(".", ",")} %`;
+    return PROGRAMS.map(([, color, label], j) => v[j] / debt >= 0.0005 ? swatch(color, label, share(v[j])) : "").reverse().join("") +
+      swatch("--text-primary", "Total", share(total)) + `<div class="muted">${mdEur(total)} sur ${mdEur(debt)} de dette publique</div>`;
   },
 };
 
@@ -293,17 +296,19 @@ const INFO = {
     "primaire presque chaque année de 1992 à 2019 : son déficit vient des intérêts ; récessions de 2009 et 2020 : les recettes chutent et " +
     "les plans de soutien gonflent le déficit primaire ; Irlande en 2010 : plus de 30 % du PIB avec le sauvetage des banques ; " +
     "Grèce : excédents primaires exigés par les plans d'aide après 2015 ; la règle européenne fixe le déficit à 3 % du PIB au plus."),
-  holdings: explain("Titres de dette publique achetés par l'Eurosystème (la BCE et les banques centrales nationales) et qu'il " +
-    "détient encore, selon le programme de rachat : le SMP, rachats ciblés de dette de la Grèce, de l'Irlande, du Portugal, de " +
+  holdings: explain("Part de la dette publique détenue par l'Eurosystème (la BCE et les banques centrales nationales), selon " +
+    "le programme de rachat qui l'a achetée : le SMP, rachats ciblés de dette de la Grèce, de l'Irlande, du Portugal, de " +
     "l'Espagne et de l'Italie en pleine crise (2010-2012, environ 220 Md€ au plus haut), compensés par un retrait équivalent de " +
     "liquidités ; le PSPP, cœur du QE, à partir de 2015, réparti selon la part de chaque pays au capital de la BCE ; le PEPP, " +
     "lancé contre la crise du Covid en mars 2020 (enveloppe de 1 850 Md€), plus souple dans sa répartition et ouvert à la Grèce. " +
     "Le programme OMT, annoncé en 2012 avec « Whatever it takes », n'a jamais servi.",
     [],
     "le SMP fond au fil des remboursements et a presque disparu en 2021 ; le PSPP monte de 2015 à 2018, s'arrête en 2019 et " +
-    "repart fin 2019 ; le PEPP bondit en 2020-2021 et ses achats nets cessent en mars 2022, ceux du PSPP en juillet 2022 ; le total " +
-    "culmine vers 4 400 Md€ pour la zone euro en 2022 ; puis le QT : le PSPP n'est plus réinvesti depuis juillet 2023, le PEPP " +
-    "depuis fin 2024, et l'encours baisse au rythme des remboursements, sans aucune vente."),
+    "repart fin 2019 ; le PEPP bondit en 2020-2021 et ses achats nets cessent en mars 2022, ceux du PSPP en juillet 2022 ; l'Eurosystème " +
+    "détient alors jusqu'à un tiers de la dette publique de la zone euro (2022 ; plus de 40 % pour l'Allemagne) ; en Grèce, " +
+    "le SMP en représentait déjà un dixième en 2012 ; puis le QT : le PSPP n'est plus réinvesti depuis juillet 2023, le PEPP " +
+    "depuis fin 2024 : l'encours baisse au rythme des remboursements, sans aucune vente, et sa part d'autant plus vite " +
+    "que la dette, elle, continue de grossir."),
   money: explain("La masse monétaire M3 réunit les billets, les dépôts et les placements à court terme des ménages et des " +
     "entreprises de la zone euro. Elle naît quand une banque, ou la banque centrale, accorde un crédit ou achète un titre : " +
     "le prêt crée un dépôt du même montant ; elle disparaît quand le crédit est remboursé. Les aires montrent d'où vient sa " +
