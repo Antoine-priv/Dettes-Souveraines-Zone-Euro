@@ -692,6 +692,35 @@ chart.addEventListener("wheel", ev => {
   throttle(() => { const f = Math.exp(wheelDelta * 0.0015); wheelDelta = 0; return scaleX(xa().range.map(xa().r2l), f, pxToL(hit.px)); });   // vers le bas = dézoomer
 }, { capture: true, passive: false });
 
+// Écran tactile : un doigt fait défiler la page (Plotly ne reçoit aucun toucher) ; deux doigts zoomment et déplacent le
+// temps comme une photo : la date entre les doigts y reste, et l'écart entre les doigts fixe l'échelle (doigts deux fois
+// plus proches = deux fois plus de temps à l'écran). Calculé depuis le début du geste, sans accumulation ni élan.
+let pinch = null;
+function pinchState(touches) {
+  const [a, b] = touches, left = chart.getBoundingClientRect().left;
+  return { mid: (a.clientX + b.clientX) / 2 - left, dist: Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1) };
+}
+chart.addEventListener("touchstart", ev => {
+  ev.stopPropagation();
+  if (ev.touches.length !== 2 || !shown.length) return;
+  ev.preventDefault();
+  const g = pinchState(ev.touches), range = xa().range.map(xa().r2l);
+  pinch = { ...g, msPerPx: (range[1] - range[0]) / chart._fullLayout._size.w, anchor: pxToL(g.mid) };
+  hideHover();
+}, { capture: true, passive: false });
+chart.addEventListener("touchmove", ev => {
+  ev.stopPropagation();
+  if (!pinch || ev.touches.length !== 2) return;
+  ev.preventDefault();
+  const g = pinchState(ev.touches), s = chart._fullLayout._size;
+  const k = pinch.msPerPx * pinch.dist / g.dist, r0 = pinch.anchor - (g.mid - s.l) * k;
+  throttle(() => setX([r0, r0 + s.w * k]));
+}, { capture: true, passive: false });
+for (const type of ["touchend", "touchcancel"]) chart.addEventListener(type, ev => {
+  ev.stopPropagation();
+  if (ev.touches.length < 2) pinch = null;
+}, { capture: true });
+
 // Double-clic : axe vertical = échelle auto ; axe du temps ou tracé = vue initiale
 chart.addEventListener("dblclick", ev => {
   const hit = hitTest(ev);
