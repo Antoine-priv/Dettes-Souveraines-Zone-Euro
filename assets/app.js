@@ -815,42 +815,35 @@ legend.addEventListener("click", ev => {
     }, 250);
   }
 });
-// ---- En-tête sur mobile (écran étroit) : la ligne du titre suit le doigt ---------------------------------------
-// Doigt posé : descendre de 10 px la remonte de 10 px, remonter la fait redescendre d'autant (jamais plus cachée que la
-// distance au haut de page). Doigt levé : elle choisit aussitôt d'être entièrement cachée ou entièrement visible (le côté
-// le plus proche) et ne bouge plus pendant l'élan, sauf pour réapparaître en arrivant en haut de page. Sans écran tactile
-// (molette), elle suit le défilement et choisit 120 ms après son arrêt. La légende reste visible.
+// ---- En-tête sur mobile (écran étroit) : la ligne du titre part avec la page et revient quand on remonte ---------
+// L'en-tête collant a un « top » négatif de la hauteur de cette ligne : en descendant, elle quitte l'écran exactement avec
+// la page (défilement natif, sans calcul ni retard) et seule la légende reste collée. Après environ 25 px parcourus vers
+// le haut, l'en-tête recolle à 0 (titre de retour), après 25 px vers le bas il redescend à −hauteur ; chaque changement
+// est animé une fois (le navigateur fait glisser l'en-tête depuis sa position précédente). Aucun suivi image par image
+// ni événement tactile : fonctionne aussi en défilant depuis un graphique.
 const header = document.querySelector("header"), controls = header.querySelector(".controls");
 const narrow = matchMedia("(max-width: 700px)");
-let rowH = 0, offset = 0, lastScroll = Math.max(scrollY, 0), touching = false, touchUsed = false, snapTimer = null;
-function setOffset(v, animate = false) {
-  v = narrow.matches ? v : 0;
-  if (v === offset && !animate) return;
-  offset = v;
-  header.style.transition = animate ? "transform .2s ease" : "none";
-  header.style.transform = v ? `translateY(${-v}px)` : "";
+let rowH = 0, titleShown = false, lastScroll = Math.max(scrollY, 0), travel = 0;
+function setHeaderTop(top) {
+  const before = header.getBoundingClientRect().top;
+  header.style.top = top + "px";
+  const delta = before - header.getBoundingClientRect().top;
+  if (delta) header.animate([{ transform: `translateY(${delta}px)` }, { transform: "none" }], { duration: 200, easing: "ease-out" });
 }
 function measureTitleRow() {
   rowH = parseFloat(getComputedStyle(header).paddingTop) + controls.offsetHeight + parseFloat(getComputedStyle(controls).marginBottom) - 8;
-  setOffset(Math.min(offset, rowH));
+  header.style.top = narrow.matches && !titleShown ? -rowH + "px" : "";
 }
 measureTitleRow();
 addEventListener("resize", measureTitleRow);
-const snapTitle = () => setOffset(offset > rowH / 2 && scrollY > rowH ? rowH : 0, true);
 addEventListener("scroll", () => {
   const y = Math.max(scrollY, 0), dy = y - lastScroll;   // rebond iOS en haut de page : pas de défilement négatif
   lastScroll = y;
-  if (touching || !touchUsed) setOffset(Math.max(0, Math.min(rowH, offset + dy, y)));
-  else if (offset > y) setOffset(y);   // élan jusqu'en haut de page
-  if (!touchUsed) { clearTimeout(snapTimer); snapTimer = setTimeout(snapTitle, 120); }
+  if (!dy || !narrow.matches) return;
+  travel = Math.sign(dy) === Math.sign(travel) ? travel + dy : dy;   // distance parcourue dans le même sens
+  if (travel < -25 && !titleShown) { titleShown = true; setHeaderTop(0); }
+  else if (travel > 25 && titleShown) { titleShown = false; setHeaderTop(-rowH); }
 }, { passive: true });
-// en capture : les graphiques arrêtent la propagation de leurs touchers
-addEventListener("touchstart", () => { touching = touchUsed = true; lastScroll = Math.max(scrollY, 0); }, { capture: true, passive: true });
-for (const type of ["touchend", "touchcancel"]) addEventListener(type, ev => {
-  if (ev.touches.length || !touching) return;
-  touching = false;
-  snapTitle();
-}, { capture: true, passive: true });
 
 // ---- Thème clair / sombre -----------------------------------------------------------
 const themeBtn = document.getElementById("theme");
