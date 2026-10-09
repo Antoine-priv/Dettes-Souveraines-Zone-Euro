@@ -472,13 +472,14 @@ const HISTORY = c => [
 ];
 
 // Géométrie verticale (px) : pour chaque panneau, un bandeau de titre, puis (s'il est déplié) le tracé et l'axe du temps
+// Bandeau de titre : 44 px, ou la hauteur du titre s'il tient sur plusieurs lignes (mobile), mesurée par paintTitles()
 const TITLE_H = 44, AXIS_H = 40;
-function geometry() {
+function geometry(titleH = {}) {
   const plotH = Math.min(500, Math.max(320, Math.round(innerHeight * 0.42)));
   let y = 0;
   const blocks = state.order.map(key => {
-    const b = { key, top: y };
-    y += TITLE_H;
+    const b = { key, top: y, titleH: titleH[key] ?? TITLE_H };
+    y += b.titleH;
     if (!state.folded.has(key)) { b.plotTop = y; b.plotBottom = y += plotH; y += AXIS_H; }
     b.bottom = y;
     return b;
@@ -543,7 +544,7 @@ function render() {
   const yRanges = Object.fromEntries(shown.map(p => [p.key, fl?.["yaxis" + p.n]?.range?.slice()]));
   shown = state.order.map(k => PANEL[k]).filter(p => !state.folded.has(p.key));
   shown.forEach((p, i) => { p.n = i ? String(i + 1) : ""; });
-  const geo = geometry();
+  const geo = geometry(paintTitles());   // titres dessinés et mesurés d'abord : leur hauteur fixe celle des bandeaux
   const layout = baseLayout(geo);
   for (const p of shown) {
     if (xRange) layout["xaxis" + p.n].range = xRange;
@@ -554,7 +555,7 @@ function render() {
   if (state.autoY && xRange) Object.assign(layout, Object.fromEntries(Object.entries(autoRanges(data, xL))
     .map(([k, r]) => [k, { ...layout[k], range: r }])));
   chart.style.height = geo.height + "px";
-  paintTitles(geo);
+  placeTitles(geo);
   paintVlines();
   return Plotly.react(chart, data, layout, config).then(() => state.autoY && shown.length && !xRange && fitY());
 }
@@ -906,18 +907,50 @@ chart.addEventListener("mouseleave", hideHover);
 // ---- Titres des graphiques : bouton −/+ (replier) et glisser-déposer (réordonner) ----------
 const titles = document.getElementById("titles");
 const dropLine = document.getElementById("dropline");
-function paintTitles(geo) {
-  titles.innerHTML = geo.blocks.map(b => {
-    const folded = state.folded.has(b.key);
-    return `<div class="ptitle${folded ? " folded" : ""}" data-key="${b.key}" draggable="true" style="top:${b.top}px">` +
+// Titres et listes de choix, puis hauteur de chaque bandeau {clé: px} : un titre sur plusieurs lignes agrandit son
+// bandeau au lieu de déborder sur l'axe du graphique précédent. Les listes de choix sont à droite du titre, ou sur leur
+// propre ligne sous le titre quand elles lui laisseraient moins de la moitié de la largeur (mobile).
+function paintTitles() {
+  titles.innerHTML = state.order.map(key => {
+    const folded = state.folded.has(key), selects = folded ? [] : selectsOf(PANEL[key]);
+    return `<div class="ptitle${folded ? " folded" : ""}" data-key="${key}" draggable="true">` +
       `<span class="ttl"><button class="fold" title="${folded ? "Afficher" : "Replier"} le graphique">${folded ? "+" : "−"}</button>` +
-      `${PANEL[b.key].title}</span></div>` +
-      (selectsOf(PANEL[b.key]).length && !folded ? `<span class="picks" style="top:${b.top + 12}px">` +
-        selectsOf(PANEL[b.key]).map(({ state: k, options }) => `<select data-state="${k}">` + options.map(([v, l]) =>
+      `${PANEL[key].title}</span></div>` +
+      (selects.length ? `<span class="picks" data-key="${key}">` +
+        selects.map(({ state: k, options }) => `<select data-state="${k}">` + options.map(([v, l]) =>
           `<option value="${v}"${v === state[k] ? " selected" : ""}>${l}</option>`).join("") + "</select>").join("") + "</span>" : "");
   }).join("");
+  const heights = {}, width = titles.clientWidth;
+  for (const t of titles.querySelectorAll(".ptitle")) {
+    const picks = titles.querySelector(`.picks[data-key="${t.dataset.key}"]`);
+    const beside = picks && width - 16 - (56 + picks.offsetWidth + 12) >= width / 2;
+    t.style.right = (beside ? 56 + picks.offsetWidth + 12 : 16) + "px";
+    if (picks && !beside) {   // dessous : titre en haut du bandeau, listes alignées à gauche sous lui
+      t.dataset.below = t.offsetHeight;
+      Object.assign(picks.style, { left: "16px", right: "auto" });
+      heights[t.dataset.key] = t.offsetHeight + picks.offsetHeight + 10;
+    } else heights[t.dataset.key] = Math.max(TITLE_H, t.offsetHeight);
+  }
+  return heights;
+}
+// Place titres et listes de choix (alignées sur la dernière ligne du titre) selon la géométrie
+function placeTitles(geo) {
+  for (const b of geo.blocks) {
+    const t = titles.querySelector(`.ptitle[data-key="${b.key}"]`), below = +t.dataset.below;
+    Object.assign(t.style, { top: b.top + "px", height: (below || b.titleH) + "px" });
+    const picks = titles.querySelector(`.picks[data-key="${b.key}"]`);
+    if (picks) picks.style.top = (below ? b.top + below : b.top + b.titleH - 32) + "px";
+  }
   titles.geo = geo;
 }
+// Largeur de fenêtre modifiée (rotation du téléphone…) : les titres peuvent changer de nombre de lignes
+let resizeTimer = null, lastWidth = innerWidth;
+addEventListener("resize", () => {
+  if (innerWidth === lastWidth) return;   // barre d'adresse mobile qui apparaît ou disparaît : hauteur seule
+  lastWidth = innerWidth;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 150);
+});
 // Listes de choix à droite du titre : {state: clé de state (mémorisée dans le navigateur), options: [[valeur, libellé]]}.
 // Par défaut, un panneau à un seul pays a le choix du pays (state.pick), précédé de l'unité s'il en propose.
 const selectsOf = panel => panel.selects ? panel.selects() : panel.single && !panel.place
