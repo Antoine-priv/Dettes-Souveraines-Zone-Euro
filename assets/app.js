@@ -815,20 +815,34 @@ legend.addEventListener("click", ev => {
     }, 250);
   }
 });
-// ---- En-tête sur mobile : le titre remonte quand on descend la page, redescend quand on la remonte -----------
-// (classe « up », CSS limité aux écrans étroits) ; la légende reste visible. Petits mouvements ignorés.
+// ---- En-tête sur mobile : la ligne du titre est « ancrée » au défilement ------------------------------------
+// Descendre de 10 px la remonte de 10 px, remonter la fait redescendre d'autant (jamais cachée en haut de page). Doigt levé
+// et défilement arrêté (élan compris), elle se range entièrement ou réapparaît entièrement, selon le côté le plus proche.
+// Le décalage (--offset) n'est appliqué par le CSS que sur écran étroit ; la légende reste visible.
 const header = document.querySelector("header"), controls = header.querySelector(".controls");
-const titleRow = () => header.style.setProperty("--title-row",
-  parseFloat(getComputedStyle(header).paddingTop) + controls.offsetHeight + parseFloat(getComputedStyle(controls).marginBottom) - 8 + "px");
-titleRow();
-addEventListener("resize", titleRow);
-let lastScroll = scrollY;
+let rowH = 0, offset = 0, lastScroll = Math.max(scrollY, 0), touching = false, snapTimer = null;
+function setOffset(v, animate = false) {
+  offset = v;
+  header.style.transition = animate ? "transform .2s ease" : "none";
+  header.style.setProperty("--offset", v + "px");
+}
+function measureTitleRow() {
+  rowH = parseFloat(getComputedStyle(header).paddingTop) + controls.offsetHeight + parseFloat(getComputedStyle(controls).marginBottom) - 8;
+  setOffset(Math.min(offset, rowH));
+}
+measureTitleRow();
+addEventListener("resize", measureTitleRow);
+const snapTitle = () => { if (!touching) setOffset(offset > rowH / 2 && scrollY > rowH ? rowH : 0, true); };
+const snapLater = () => { clearTimeout(snapTimer); snapTimer = setTimeout(snapTitle, 120); };
 addEventListener("scroll", () => {
-  const y = scrollY;
-  if (Math.abs(y - lastScroll) < 6 && y > 0) return;
-  header.classList.toggle("up", y > lastScroll && y > header.offsetHeight);
+  const y = Math.max(scrollY, 0);   // rebond iOS en haut de page : pas de défilement négatif
+  setOffset(Math.max(0, Math.min(rowH, offset + y - lastScroll, y)));
   lastScroll = y;
+  snapLater();
 }, { passive: true });
+// en capture : les graphiques arrêtent la propagation de leurs touchers
+addEventListener("touchstart", () => { touching = true; clearTimeout(snapTimer); }, { capture: true, passive: true });
+for (const type of ["touchend", "touchcancel"]) addEventListener(type, ev => { touching = ev.touches.length > 0; snapLater(); }, { capture: true, passive: true });
 
 // ---- Thème clair / sombre -----------------------------------------------------------
 const themeBtn = document.getElementById("theme");
