@@ -815,6 +815,21 @@ legend.addEventListener("click", ev => {
     }, 250);
   }
 });
+// ---- En-tête sur mobile : le titre remonte quand on descend la page, redescend quand on la remonte -----------
+// (classe « up », CSS limité aux écrans étroits) ; la légende reste visible. Petits mouvements ignorés.
+const header = document.querySelector("header"), controls = header.querySelector(".controls");
+const titleRow = () => header.style.setProperty("--title-row",
+  parseFloat(getComputedStyle(header).paddingTop) + controls.offsetHeight + parseFloat(getComputedStyle(controls).marginBottom) - 8 + "px");
+titleRow();
+addEventListener("resize", titleRow);
+let lastScroll = scrollY;
+addEventListener("scroll", () => {
+  const y = scrollY;
+  if (Math.abs(y - lastScroll) < 6 && y > 0) return;
+  header.classList.toggle("up", y > lastScroll && y > header.offsetHeight);
+  lastScroll = y;
+}, { passive: true });
+
 // ---- Thème clair / sombre -----------------------------------------------------------
 const themeBtn = document.getElementById("theme");
 const isDark = () => getComputedStyle(document.documentElement).colorScheme === "dark";
