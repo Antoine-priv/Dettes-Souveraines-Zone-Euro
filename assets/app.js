@@ -815,16 +815,20 @@ legend.addEventListener("click", ev => {
     }, 250);
   }
 });
-// ---- En-tête sur mobile : la ligne du titre est « ancrée » au défilement ------------------------------------
-// Descendre de 10 px la remonte de 10 px, remonter la fait redescendre d'autant (jamais cachée en haut de page). Doigt levé
-// et défilement arrêté (élan compris), elle se range entièrement ou réapparaît entièrement, selon le côté le plus proche.
-// Le décalage (--offset) n'est appliqué par le CSS que sur écran étroit ; la légende reste visible.
+// ---- En-tête sur mobile (écran étroit) : la ligne du titre suit le doigt ---------------------------------------
+// Doigt posé : descendre de 10 px la remonte de 10 px, remonter la fait redescendre d'autant (jamais plus cachée que la
+// distance au haut de page). Doigt levé : elle choisit aussitôt d'être entièrement cachée ou entièrement visible (le côté
+// le plus proche) et ne bouge plus pendant l'élan, sauf pour réapparaître en arrivant en haut de page. Sans écran tactile
+// (molette), elle suit le défilement et choisit 120 ms après son arrêt. La légende reste visible.
 const header = document.querySelector("header"), controls = header.querySelector(".controls");
-let rowH = 0, offset = 0, lastScroll = Math.max(scrollY, 0), touching = false, snapTimer = null;
+const narrow = matchMedia("(max-width: 700px)");
+let rowH = 0, offset = 0, lastScroll = Math.max(scrollY, 0), touching = false, touchUsed = false, snapTimer = null;
 function setOffset(v, animate = false) {
+  v = narrow.matches ? v : 0;
+  if (v === offset && !animate) return;
   offset = v;
   header.style.transition = animate ? "transform .2s ease" : "none";
-  header.style.setProperty("--offset", v + "px");
+  header.style.transform = v ? `translateY(${-v}px)` : "";
 }
 function measureTitleRow() {
   rowH = parseFloat(getComputedStyle(header).paddingTop) + controls.offsetHeight + parseFloat(getComputedStyle(controls).marginBottom) - 8;
@@ -832,17 +836,21 @@ function measureTitleRow() {
 }
 measureTitleRow();
 addEventListener("resize", measureTitleRow);
-const snapTitle = () => { if (!touching) setOffset(offset > rowH / 2 && scrollY > rowH ? rowH : 0, true); };
-const snapLater = () => { clearTimeout(snapTimer); snapTimer = setTimeout(snapTitle, 120); };
+const snapTitle = () => setOffset(offset > rowH / 2 && scrollY > rowH ? rowH : 0, true);
 addEventListener("scroll", () => {
-  const y = Math.max(scrollY, 0);   // rebond iOS en haut de page : pas de défilement négatif
-  setOffset(Math.max(0, Math.min(rowH, offset + y - lastScroll, y)));
+  const y = Math.max(scrollY, 0), dy = y - lastScroll;   // rebond iOS en haut de page : pas de défilement négatif
   lastScroll = y;
-  snapLater();
+  if (touching || !touchUsed) setOffset(Math.max(0, Math.min(rowH, offset + dy, y)));
+  else if (offset > y) setOffset(y);   // élan jusqu'en haut de page
+  if (!touchUsed) { clearTimeout(snapTimer); snapTimer = setTimeout(snapTitle, 120); }
 }, { passive: true });
 // en capture : les graphiques arrêtent la propagation de leurs touchers
-addEventListener("touchstart", () => { touching = true; clearTimeout(snapTimer); }, { capture: true, passive: true });
-for (const type of ["touchend", "touchcancel"]) addEventListener(type, ev => { touching = ev.touches.length > 0; snapLater(); }, { capture: true, passive: true });
+addEventListener("touchstart", () => { touching = touchUsed = true; lastScroll = Math.max(scrollY, 0); }, { capture: true, passive: true });
+for (const type of ["touchend", "touchcancel"]) addEventListener(type, ev => {
+  if (ev.touches.length || !touching) return;
+  touching = false;
+  snapTitle();
+}, { capture: true, passive: true });
 
 // ---- Thème clair / sombre -----------------------------------------------------------
 const themeBtn = document.getElementById("theme");

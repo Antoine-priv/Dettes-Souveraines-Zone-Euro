@@ -47,10 +47,7 @@ header {
   padding: 16px 0 8px; border-bottom: 1px solid var(--grid); margin-bottom: 8px;
 }
 .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-/* mobile : la ligne du titre suit le défilement (décalage --offset calculé par app.js) ; la légende reste */
-@media (max-width: 700px) {
-  header { transform: translateY(calc(-1 * var(--offset, 0px))); }
-}
+
 #legend { display: flex; flex-wrap: wrap; gap: 4px; }
 #legend button { background: transparent; display: inline-flex; align-items: center; gap: 6px; }
 #legend button.off { opacity: .35; }
