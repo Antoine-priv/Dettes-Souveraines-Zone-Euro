@@ -267,23 +267,35 @@ const holdingsPanel = {
   },
 };
 
-// Adjudications d'OAT de l'État français (sur 12 mois glissants, Md€) : montant emprunté (adjugé) depuis zéro, puis la
-// demande non servie jusqu'au total des offres des investisseurs (ligne) ; placé au milieu de ses 12 mois.
+// Adjudications d'OAT de l'État français (sur 12 mois glissants), placées au milieu de leurs 12 mois, au choix
+// (state.auctionView, liste à droite du titre) : montants en Md€ (emprunté depuis zéro, puis demande non servie jusqu'au
+// total des offres, en ligne) ou taux de couverture (offres / montant emprunté).
 const A = DATA.auctions;
+const AUCTION_VIEWS = [["amounts", "Montants (Md€)"], ["ratio", "Taux de couverture"]];
+const coverRatio = A.periods.map((_, i) => A.served[i] ? +(A.bid[i] / A.served[i]).toFixed(3) : null);
 const auctionsPanel = {
-  key: "auctions", title: "Adjudications d'OAT : offres des investisseurs et montant emprunté par l'État (Md€ sur un an)",
-  codes: ALL_CODES, single: true, place: "France", fromZero: true,
+  key: "auctions", title: "France : adjudications d'OAT, offres des investisseurs et montant emprunté (sur un an)",
+  codes: ALL_CODES, single: true, place: "France", fromZero: () => state.auctionView === "amounts",
+  selects: () => [{ state: "auctionView", options: AUCTION_VIEWS }],
   x: A.periods.map(monthMid), date: i => monthWindow(A.periods[i]),
-  traces: () => [
-    area("--s1", A.served, "tozeroy"),
-    area("--s3", A.bid, "tonexty"),
-    { y: A.bid, line: { color: css("--text-primary"), width: 2 } },
-  ],
-  tip: (c, i) => swatch("--s3", "Offres non servies", mdEur(A.bid[i] - A.served[i])) +
-    swatch("--s1", "Emprunté par l'État", mdEur(A.served[i])) +
-    swatch("--text-primary", "Offres des investisseurs", mdEur(A.bid[i])) +
-    `<div class="muted">soit ${(A.bid[i] / A.served[i]).toFixed(2).replace(".", ",")} fois le montant emprunté ; ` +
-    `annoncé : ${mdEur(A.offered_min[i])} à ${mdEur(A.offered_max[i])}</div>`,
+  traces: () => state.auctionView === "ratio"
+    ? [{ y: coverRatio, line: { color: css("--text-primary"), width: 2 } }]
+    : [
+      area("--s1", A.served, "tozeroy"),
+      area("--s3", A.bid, "tonexty"),
+      { y: A.bid, line: { color: css("--text-primary"), width: 2 } },
+    ],
+  tip: (c, i) => {
+    const ratio = `${coverRatio[i].toFixed(2).replace(".", ",")}`;
+    const announced = `annoncé : ${mdEur(A.offered_min[i])} à ${mdEur(A.offered_max[i])}`;
+    return state.auctionView === "ratio"
+      ? swatch("--text-primary", "Taux de couverture", ratio) +
+        `<div class="muted">${mdEur(A.bid[i])} d'offres pour ${mdEur(A.served[i])} empruntés ; ${announced}</div>`
+      : swatch("--s3", "Offres non servies", mdEur(A.bid[i] - A.served[i])) +
+        swatch("--s1", "Emprunté par l'État", mdEur(A.served[i])) +
+        swatch("--text-primary", "Offres des investisseurs", mdEur(A.bid[i])) +
+        `<div class="muted">soit ${ratio} fois le montant emprunté ; ${announced}</div>`;
+  },
 };
 
 const INFO = {
@@ -413,6 +425,8 @@ state.pick = "FR";   // pays des panneaux « single »
 try { const p = localStorage.getItem("pick"); if (ALL_CODES.includes(p)) state.pick = p; } catch {}
 state.holder = "EA";   // émetteur du panneau de la dette détenue par l'Eurosystème (EA : zone euro)
 try { const h = localStorage.getItem("holder"); if (h === "EA" || ALL_CODES.includes(h)) state.holder = h; } catch {}
+state.auctionView = "amounts";   // panneau des adjudications : montants ou taux de couverture
+try { const v = localStorage.getItem("auctionView"); if (AUCTION_VIEWS.some(([k]) => k === v)) state.auctionView = v; } catch {}
 state.unit = "pct";  // unité du panneau du PIB par la demande
 try { const u = localStorage.getItem("unit"); if (UNITS[u]) state.unit = u; } catch {}
 let shown = [];   // panneaux dépliés, dans l'ordre d'affichage
@@ -612,7 +626,8 @@ function autoRanges(data, [x0, x1]) {
   const out = {};
   for (const p of shown) {
     const axis = "y" + p.n, yname = "yaxis" + p.n;
-    let lo = p.fromZero ? 0 : Infinity, hi = -Infinity;   // aires empilées depuis zéro : zéro toujours visible
+    const fromZero = typeof p.fromZero === "function" ? p.fromZero() : p.fromZero;
+    let lo = fromZero ? 0 : Infinity, hi = -Infinity;   // aires empilées depuis zéro : zéro toujours visible
     for (const t of data) {
       if (t.yaxis !== axis || t.visible === "legendonly") continue;
       const ms = toMs(t.x), y = t.y;
@@ -627,7 +642,7 @@ function autoRanges(data, [x0, x1]) {
     }
     if (hi === -Infinity) continue;
     const pad = (hi - lo) * 0.06 || 0.5;
-    out[yname] = [p.fromZero ? 0 : lo - pad, hi + pad];
+    out[yname] = [fromZero ? 0 : lo - pad, hi + pad];
   }
   return out;
 }
