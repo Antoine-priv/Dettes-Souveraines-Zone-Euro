@@ -298,6 +298,52 @@ const auctionsPanel = {
   },
 };
 
+// Taux d'emprunt d'État à 2 ans et à 10 ans d'un pays (state.pick) ; fond rouge pâle quand la courbe est inversée (2 ans
+// au-dessus du 10 ans). Trous d'au plus 3 mois du taux à 2 ans (trimestriel avant 2011 hors Allemagne) comblés par
+// interpolation linéaire ; les plus longs (Grèce en 2012) restent vides.
+const SHORT = Object.fromEntries(ALL_CODES.map(c => {
+  const y = DATA.short.series[c].slice();
+  for (let i = 0, k = -1; i < y.length; i++) {
+    if (y[i] == null) continue;
+    if (k >= 0 && i - k > 1 && i - k <= 3) for (let j = k + 1; j < i; j++) y[j] = +(y[k] + (y[i] - y[k]) * (j - k) / (i - k)).toFixed(3);
+    k = i;
+  }
+  return [c, y];
+}));
+const curvePanel = {
+  key: "curve", title: "Taux d'emprunt d'État à 2 ans et à 10 ans : inversion de la courbe des taux (%)",
+  codes: ALL_CODES, single: true, zero: true, inversion: true,
+  x: months.map(monthDate), date: i => monthYear.format(PANEL.curve.stamps[i]),
+  traces: c => [
+    { y: SHORT[c], line: { color: css("--s2"), width: 2 } },
+    { y: DATA.series[c], line: { color: css("--text-primary"), width: 2 } },
+  ],
+  tip: (c, i) => {
+    const long = DATA.series[c][i], short = SHORT[c][i];
+    if (long == null) return "";
+    if (short == null) return swatch("--text-primary", "10 ans", pct(long)) + `<div class="muted">pas de cotation à 2 ans</div>`;
+    const gap = long - short;
+    return swatch("--text-primary", "10 ans", pct(long)) + swatch("--s2", "2 ans", pct(short)) +
+      `<div class="muted">${gap >= 0 ? `courbe normale : le 10 ans rapporte ${pct(gap)} de plus`
+        : `courbe inversée : le 2 ans rapporte ${pct(-gap)} de plus`}</div>`;
+  },
+};
+// Fond rouge pâle sur les mois où le 2 ans dépasse le 10 ans (chaque mois couvre jusqu'à mi-chemin de ses voisins)
+function inversionShapes(p) {
+  const c = state.pick, long = DATA.series[c], short = SHORT[c], ms = p.stamps, n = ms.length, out = [];
+  const inv = i => long[i] != null && short[i] != null && short[i] > long[i];
+  const edge = (i, d) => new Date((ms[Math.min(n - 1, Math.max(0, i))] + ms[Math.min(n - 1, Math.max(0, i + d))]) / 2).toISOString().slice(0, 10);
+  for (let i = 0; i < n; i++) {
+    if (!inv(i)) continue;
+    let j = i;
+    while (j + 1 < n && inv(j + 1)) j++;
+    out.push({ type: "rect", xref: "x" + p.n, yref: `y${p.n} domain`, x0: edge(i, -1), x1: edge(j, 1), y0: 0, y1: 1,
+      fillcolor: css("--s5") + "26", line: { width: 0 }, layer: "below" });
+    i = j;
+  }
+  return out;
+}
+
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
@@ -312,6 +358,18 @@ const INFO = {
     "la longue baisse de 2000 à 2020 (inflation faible, taux de la BCE jusqu'à −0,5 %, QE), jusqu'à des taux négatifs en " +
     "Allemagne dès 2016 et brièvement en France en 2019-2020 : les investisseurs payaient pour prêter ; puis la remontée brutale " +
     "de 2022 avec l'inflation et la hausse des taux de la BCE."),
+  curve: explain("Taux auquel l'État emprunte pour 2 ans (orange) et pour 10 ans. D'habitude, prêter plus longtemps " +
+    "rapporte davantage : le prêteur immobilise son argent et court le risque que l'inflation ou les taux remontent, la courbe " +
+    "des taux monte avec la durée. Elle s'inverse (fond rouge) quand le 2 ans dépasse le 10 ans : soit les marchés attendent " +
+    "une baisse des taux de la banque centrale, souvent parce qu'ils prévoient un ralentissement ou une récession ; soit, en " +
+    "pleine crise de la dette, ils craignent un défaut proche et exigent bien plus pour prêter à court terme.",
+    [],
+    "en 2006-2008, la BCE monte son taux jusqu'à 4,25 % et la courbe s'aplatit, jusqu'à s'inverser brièvement en Allemagne " +
+    "et en France ; en 2011-2012, en Grèce, au Portugal et en Irlande, le 2 ans s'envole au-dessus du 10 ans (Grèce : plus " +
+    "de 100 % fin 2011, avant la restructuration de sa dette) ; de 2022 à 2024, la BCE relève son taux de −0,5 % à 4 % : le " +
+    "2 ans dépasse le 10 ans pendant près de deux ans en Allemagne (jusqu'à 0,76 % d'écart en juin 2023) et en 2023-2024 en " +
+    "France, les marchés pariant sur des baisses de taux à venir ; l'Italie et l'Espagne, dont le 10 ans contient une prime " +
+    "de risque plus forte, n'ont presque jamais de courbe inversée."),
   debt: explain("Dette brute de toutes les administrations publiques (État, collectivités locales, sécurité sociale), au sens " +
     "de Maastricht, en fin de trimestre, rapportée au PIB des 4 derniers trimestres.",
     ["ΔD = r × D<sub>t−1</sub> + déficit primaire", "D : dette en euros ; r : taux moyen de la dette"],
@@ -396,6 +454,7 @@ const PANELS = [
     x: months.map(monthDate), y: c => spreads[c], text: v => `${fmt(v)} %` },
   { key: "rate", title: "Taux d'emprunt d'État à 10 ans (%)", codes: ALL_CODES, zero: true,
     x: months.map(monthDate), y: c => DATA.series[c], text: v => `${fmt(v)} %` },
+  curvePanel,
   { key: "debt", title: "Dette publique (% du PIB)", codes: ALL_CODES,
     x: DATA.debt.periods.map(quarterEnd), y: c => DATA.debt.series[c], text: pctGDP,
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
@@ -543,6 +602,7 @@ function baseLayout(geo) {
   });
   const shapes = [
     ...shown.filter(p => p.rg).flatMap(rgShapes),
+    ...shown.filter(p => p.inversion).flatMap(inversionShapes),
     ...shown.flatMap(p => visibleEvents().map(([d, , , c]) => eventLine(d, "x" + p.n, `y${p.n} domain`, c))),
     ...shown.filter(p => p.history).flatMap(p => HISTORY(state.pick).map(([d]) => eventLine(d, "x" + p.n, `y${p.n} domain`))),
     ...shown.filter(p => p.zero).map(p => ({ type: "line", xref: "paper", yref: "y" + p.n, x0: 0, x1: 1, y0: 0, y1: 0, line: { color: css("--zero"), width: 1 }, layer: "below" })),

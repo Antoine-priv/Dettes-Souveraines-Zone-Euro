@@ -22,6 +22,9 @@ Finances publiques (Eurostat, administrations publiques S13) :
   - masse monétaire M3 de la zone euro (BCE, mensuel) : croissance sur un an et ses contreparties, c'est-à-dire
     les sources de la création monétaire (crédit au secteur privé, crédit aux administrations publiques dont le QE,
     avoirs extérieurs nets, autres) ;
+  - taux d'emprunt d'État à 2 ans, pour comparer au 10 ans (inversion de la courbe des taux) : Bundesbank pour
+    l'Allemagne (courbe des taux, mensuel depuis 1972), CNBC pour les autres pays (cours hebdomadaires depuis 2011,
+    trimestriels avant pour la France et l'Italie ; Irlande et Grèce publiées seulement jusqu'en 2019 et 2018) ;
   - adjudications d'OAT de l'État français (Agence France Trésor) : montant des offres des investisseurs et montant
     emprunté, sur 12 mois glissants. Le site de l'AFT bloque les téléchargements automatiques : son historique
     (« Principaux chiffres OAT », fichier .xlsx mensuel) est enregistré à la main dans data/aft_adjudications_oat.xlsx ;
@@ -74,6 +77,10 @@ ECB_URL = (
     "M.{code}.L.L40.CI.0000.EUR.N.Z?format=csvdata&startPeriod=" + START
 )
 CNBC_URL = "https://ts-api.cnbc.com/harmony/app/charts/1Y.json?symbol={code}10Y-{code}"
+# Taux à 2 ans : historique CNBC (« 10Y » : cours hebdomadaires depuis 2011 ; « ALL » : trimestriels depuis 1994)
+CNBC_2Y_URL = "https://ts-api.cnbc.com/harmony/app/charts/{range}.json?symbol={code}2Y-{code}"
+BBK_2Y_URL = ("https://api.statistiken.bundesbank.de/rest/data/BBSIS/"
+              "M.I.ZST.ZI.EUR.S1311.B.A604.R02XX.R.A.A._Z._Z.A?format=csv&lang=en")   # Allemagne, méthode de Svensson
 TV_URL = "https://scanner.tradingview.com/global/scan"
 EUROSTAT_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}"
 EUROSTAT_GEO = {"GR": "EL"}  # Eurostat code la Grèce « EL »
@@ -190,6 +197,30 @@ def fetch_cnbc_daily(code):
         day = date(int(t[:4]), int(t[4:6]), int(t[6:8]))
         if day.weekday() < 5 and bar["close"]:
             out[day.isoformat()] = float(bar["close"])
+    return out
+
+
+def fetch_2y(code):
+    """{'AAAA-MM': taux à 2 ans} en moyenne mensuelle. Allemagne : Bundesbank. Autres pays : CNBC, moyenne des cours
+    hebdomadaires depuis 2011, et avant, le cours de fin de trimestre placé sur le dernier mois du trimestre."""
+    if code == "DE":
+        return {r[0]: float(r[1]) for r in csv.reader(http(BBK_2Y_URL).splitlines())
+                if len(r) > 1 and re.fullmatch(r"\d{4}-\d{2}", r[0]) and r[1].strip()}
+    def bars(rng):
+        try:
+            return json.loads(http(CNBC_2Y_URL.format(range=rng, code=code), timeout=30))["barData"]["priceBars"]
+        except (KeyError, TypeError):   # pas de série à 2 ans pour ce pays
+            return []
+    weekly = {}
+    for b in bars("10Y"):
+        if b["close"]:
+            weekly.setdefault(b["tradeTime"][:4] + "-" + b["tradeTime"][4:6], []).append(float(b["close"]))
+    out = {m: sum(v) / len(v) for m, v in weekly.items()}
+    first = min(out, default="9999")
+    for b in bars("ALL"):   # trimestriel : tradeTime = début du trimestre, close = fin du trimestre
+        m = shift_month(b["tradeTime"][:4] + "-" + b["tradeTime"][4:6], 2)
+        if b["close"] and m < first:
+            out[m] = float(b["close"])
     return out
 
 
@@ -322,6 +353,13 @@ def download():
     for code, name in COUNTRIES.items():
         print(f"  BCE : {name}…", flush=True)
         data["ecb"][code] = fetch_ecb(code)
+    print("  Bundesbank et CNBC : taux à 2 ans…", flush=True)
+    data["short"] = {}
+    for code in COUNTRIES:
+        try:
+            data["short"][code] = fetch_2y(code)
+        except Exception as exc:
+            print(f"    {code} indisponible ({exc})")
     print("  CNBC : taux journaliers récents…", flush=True)
     for code in COUNTRIES:
         try:
@@ -759,6 +797,7 @@ def main():
         "money": money(data),
         "holdings": qe_holdings(data),
         "auctions": auctions(),
+        "short": {"months": months, "series": table({c: data.get("short", {}).get(c, {}) for c in COUNTRIES}, months, 3)},
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
