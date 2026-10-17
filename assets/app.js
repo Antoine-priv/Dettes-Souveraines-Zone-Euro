@@ -267,6 +267,25 @@ const holdingsPanel = {
   },
 };
 
+// Adjudications d'OAT de l'État français (sur 12 mois glissants, Md€) : montant emprunté (adjugé) depuis zéro, puis la
+// demande non servie jusqu'au total des offres des investisseurs (ligne) ; placé au milieu de ses 12 mois.
+const A = DATA.auctions;
+const auctionsPanel = {
+  key: "auctions", title: "Adjudications d'OAT : offres des investisseurs et montant emprunté par l'État (Md€ sur un an)",
+  codes: ALL_CODES, single: true, place: "France", fromZero: true,
+  x: A.periods.map(monthMid), date: i => monthWindow(A.periods[i]),
+  traces: () => [
+    area("--s1", A.served, "tozeroy"),
+    area("--s3", A.bid, "tonexty"),
+    { y: A.bid, line: { color: css("--text-primary"), width: 2 } },
+  ],
+  tip: (c, i) => swatch("--s3", "Offres non servies", mdEur(A.bid[i] - A.served[i])) +
+    swatch("--s1", "Emprunté par l'État", mdEur(A.served[i])) +
+    swatch("--text-primary", "Offres des investisseurs", mdEur(A.bid[i])) +
+    `<div class="muted">soit ${(A.bid[i] / A.served[i]).toFixed(2).replace(".", ",")} fois le montant emprunté ; ` +
+    `annoncé : ${mdEur(A.offered_min[i])} à ${mdEur(A.offered_max[i])}</div>`,
+};
+
 const INFO = {
   spread: explain("Supplément de taux que les investisseurs exigent pour prêter à un État plutôt qu'à l'Allemagne, jugée la plus sûre " +
     "de la zone euro : c'est la prime de risque du pays (risque de défaut et, jusqu'en 2012, risque de sortie de l'euro).",
@@ -309,6 +328,17 @@ const INFO = {
     "le SMP en représentait déjà un dixième en 2012 ; puis le QT : le PSPP n'est plus réinvesti depuis juillet 2023, le PEPP " +
     "depuis fin 2024 : l'encours baisse au rythme des remboursements, sans aucune vente, et sa part d'autant plus vite " +
     "que la dette, elle, continue de grossir."),
+  auctions: explain("Pour emprunter, l'Agence France Trésor organise chaque mois des adjudications : elle annonce une " +
+    "fourchette de montant, puis les spécialistes en valeurs du Trésor, une quinzaine de banques, déposent pour eux-mêmes et " +
+    "pour leurs clients des offres, chacune avec un montant et un prix ; l'AFT retient les meilleures jusqu'au montant voulu. " +
+    "Les aires comparent ce que l'État emprunte (bleu) aux offres des investisseurs (jusqu'à la ligne), sur un an ; leur " +
+    "rapport est le taux de couverture. Ne comptent ici que les OAT émises par adjudication, pas les titres à moins d'un an " +
+    "ni les syndications, ces émissions de nouvelles lignes par un groupe de banques aux carnets d'ordres souvent bien plus fournis.",
+    [],
+    "les offres dépassent toujours largement le montant emprunté, en général de 2 à 3 fois ; l'État emprunte bien plus " +
+    "après 2008 (115 Md€ en 2008, 190 Md€ en 2010) puis depuis 2019 (près de 290 Md€ en 2025), et la demande suit, et même " +
+    "accélère : 855 Md€ d'offres en 2025, près de 3 fois le montant emprunté, malgré l'instabilité politique. Un taux de " +
+    "couverture qui chute signalerait une difficulté à placer la dette, souvent avant que les taux ne montent."),
   money: explain("La masse monétaire M3 réunit les billets, les dépôts et les placements à court terme des ménages et des " +
     "entreprises de la zone euro. Elle naît quand une banque, ou la banque centrale, accorde un crédit ou achète un titre : " +
     "le prêt crée un dépôt du même montant ; elle disparaît quand le crédit est remboursé. Les aires montrent d'où vient sa " +
@@ -359,6 +389,7 @@ const PANELS = [
     date: i => { const q = DATA.debt.periods[i]; return q < "2000" ? `fin ${q.slice(0, 4)}` : monthYear.format(PANEL.debt.stamps[i]); } },   // encours : fin de période
   deficitPanel,
   holdingsPanel,
+  auctionsPanel,
   moneyPanel,
   demandPanel,
   growthPanel("growth", "Inflation + croissance et taux moyen de la dette publique (%)", interest, "Taux moyen de la dette publique"),

@@ -22,6 +22,9 @@ Finances publiques (Eurostat, administrations publiques S13) :
   - masse monétaire M3 de la zone euro (BCE, mensuel) : croissance sur un an et ses contreparties, c'est-à-dire
     les sources de la création monétaire (crédit au secteur privé, crédit aux administrations publiques dont le QE,
     avoirs extérieurs nets, autres) ;
+  - adjudications d'OAT de l'État français (Agence France Trésor) : montant des offres des investisseurs et montant
+    emprunté, sur 12 mois glissants. Le site de l'AFT bloque les téléchargements automatiques : son historique
+    (« Principaux chiffres OAT », fichier .xlsx mensuel) est enregistré à la main dans data/aft_adjudications_oat.xlsx ;
   - déficit avant 2000 : chiffres annuels du FMI depuis 1950 (intérêts − solde primaire) ;
   - déficit sur 4 trimestres glissants : somme du solde public (B9, gov_10q_ggnfa)
     / somme du PIB (B1GQ, namq_10_gdp), en euros non corrigés des variations
@@ -43,10 +46,13 @@ bibliothèque standard Python.
 import csv
 import io
 import json
+import re
 import sys
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+import xml.etree.ElementTree as ET
+import zipfile
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -91,6 +97,7 @@ MONEY = {
 QE_URL = "https://www.ecb.europa.eu/mopo/pdf/{}.csv"
 QE_FILES = {"PSPP": "PSPP_breakdown_history", "PEPP": "PEPP_public_sector_securities_breakdown_history"}
 # Programme SMP (2010-2012) : encours en fin d'année par pays (valeur comptable, Md€), depuis fin 2012
+AFT_FILE = ROOT / "data" / "aft_adjudications_oat.xlsx"   # historique des adjudications d'OAT, mis à jour à la main
 EURO_AREA = "EA21"   # code Eurostat de la zone euro actuelle
 SMP_URL = "https://www.ecb.europa.eu/mopo/pdf/SMP_breakdown_history.csv"
 QE_NAMES = {"GR": "Greece", "IT": "Italy", "ES": "Spain", "PT": "Portugal", "IE": "Ireland", "FR": "France", "DE": "Germany"}
@@ -608,6 +615,57 @@ def month_end_value(quarterly, m):
     return v0 + (v1 - v0) * months_apart(e0, m) / months_apart(e0, e1)
 
 
+def read_xlsx(path):
+    """Lignes de la première feuille d'un fichier .xlsx : [{'A': valeur, 'B': …}] (bibliothèque standard seulement)."""
+    ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    with zipfile.ZipFile(path) as z:
+        strings = ["".join(t.text or "" for t in si.iter(ns + "t")) for si in ET.fromstring(z.read("xl/sharedStrings.xml"))]
+        sheet = ET.fromstring(z.read("xl/worksheets/sheet1.xml"))
+    out = []
+    for row in sheet.iter(ns + "row"):
+        cells = {}
+        for c in row.iter(ns + "c"):
+            v = c.find(ns + "v")
+            if v is not None:
+                cells[re.match(r"[A-Z]+", c.get("r")).group()] = strings[int(v.text)] if c.get("t") == "s" else v.text
+        out.append(cells)
+    return out
+
+
+def auctions():
+    """Adjudications d'OAT (moyen et long terme, indexées comprises ; hors syndications et BTF), sommes sur 12 mois
+    glissants en Md€ : offres des investisseurs (volume des soumissions), volume adjugé et fourchette annoncée.
+    {'periods': ['AAAA-MM'], 'bid'|'served'|'offered_min'|'offered_max': [...], 'last': 'AAAA-MM-JJ'}"""
+    if not AFT_FILE.exists():
+        return {"periods": []}
+    month, sessions, last = {}, {}, None
+    for r in read_xlsx(AFT_FILE)[1:]:   # 1re ligne : intitulés des colonnes
+        if not r.get("B"):
+            continue
+        day = date(1899, 12, 30) + timedelta(days=int(float(r["B"])))   # date au format Excel
+        m = month.setdefault(day.strftime("%Y-%m"), {"bid": 0, "served": 0, "offered_min": 0, "offered_max": 0})
+        m["bid"] += float(r.get("H") or 0)
+        m["served"] += float(r.get("I") or 0)
+        # fourchette annoncée pour toute la séance (répétée sur chaque ligne de la séance)
+        sessions[(day, r["A"])] = (float(r.get("D") or 0), float(r.get("E") or 0))
+        last = max(last or day, day)
+    for (day, _), (lo, hi) in sessions.items():
+        m = month[day.strftime("%Y-%m")]
+        m["offered_min"] += lo
+        m["offered_max"] += hi
+    first, end = min(month), max(month)
+    out = {k: [] for k in ("bid", "served", "offered_min", "offered_max")}
+    periods = []
+    m = shift_month(first, 11)
+    while m <= end:   # mois sans adjudication (août…) comptés pour zéro
+        window = [month.get(shift_month(m, -k), {}) for k in range(12)]
+        periods.append(m)
+        for k in out:
+            out[k].append(round(sum(w.get(k, 0) for w in window) / 1000, 1))
+        m = shift_month(m, 1)
+    return {"periods": periods, **out, "last": last.isoformat()}
+
+
 def months_apart(a, b):
     return (int(b[:4]) - int(a[:4])) * 12 + int(b[5:]) - int(a[5:])
 
@@ -700,6 +758,7 @@ def main():
         "demand": demand(data),
         "money": money(data),
         "holdings": qe_holdings(data),
+        "auctions": auctions(),
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
@@ -717,9 +776,9 @@ def main():
     official = max(max(s) for s in data["ecb"].values())
     source = " (cache, hors ligne)" if from_cache else ""
     print(f"BCE jusqu'à {official}, complété jusqu'à {months[-1]}{source}  →  {OUTPUT.relative_to(ROOT)}")
-    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "demand", "money"):
+    for key in ("debt", "deficit", "growth", "real", "interest", "interest_all", "burden", "demand", "money", "auctions"):
         if periods := payload[key]["periods"]:
-            print(f"{'BCE' if key in ('qe', 'money') else 'Eurostat'} {key} : {periods[0]} → {periods[-1]}")
+            print(f"{'BCE' if key in ('qe', 'money') else 'AFT' if key == 'auctions' else 'Eurostat'} {key} : {periods[0]} → {periods[-1]}")
     if years := budget_payload["years"]:
         print(f"Eurostat budget de la France : {years[0]} → {years[-1]}  →  {OUTPUT_BUDGET.relative_to(ROOT)}")
 
