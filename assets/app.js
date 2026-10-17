@@ -298,10 +298,11 @@ const auctionsPanel = {
   },
 };
 
-// Taux d'emprunt d'État à 2 ans et à 10 ans d'un pays (state.pick) ; fond rouge pâle quand la courbe est inversée (2 ans
-// au-dessus du 10 ans). Trous d'au plus 3 mois du taux à 2 ans (trimestriel avant 2011 hors Allemagne) comblés par
-// interpolation linéaire ; les plus longs (Grèce en 2012) restent vides.
-const SHORT = Object.fromEntries(ALL_CODES.map(c => {
+// Taux d'emprunt d'État à 2 ans et à 10 ans d'un pays (state.curvePick, liste à droite du titre, sans la Grèce ni
+// l'Irlande dont le 2 ans n'est plus coté) ; fond rouge pâle quand la courbe est inversée (2 ans au-dessus du 10 ans).
+// Trous d'au plus 3 mois du taux à 2 ans (trimestriel avant 2011 hors Allemagne) comblés par interpolation linéaire.
+const CURVE_CODES = Object.keys(DATA.short.series);
+const SHORT = Object.fromEntries(CURVE_CODES.map(c => {
   const y = DATA.short.series[c].slice();
   for (let i = 0, k = -1; i < y.length; i++) {
     if (y[i] == null) continue;
@@ -312,13 +313,14 @@ const SHORT = Object.fromEntries(ALL_CODES.map(c => {
 }));
 const curvePanel = {
   key: "curve", title: "Taux d'emprunt d'État à 2 ans et à 10 ans : inversion de la courbe des taux (%)",
-  codes: ALL_CODES, single: true, zero: true, inversion: true,
+  codes: ALL_CODES, single: true, zero: true, inversion: true, place: () => DATA.names[state.curvePick],
+  selects: () => [{ state: "curvePick", options: CURVE_CODES.map(c => [c, DATA.names[c]]) }],
   x: months.map(monthDate), date: i => monthYear.format(PANEL.curve.stamps[i]),
-  traces: c => [
+  traces: (_, c = state.curvePick) => [
     { y: SHORT[c], line: { color: css("--s2"), width: 2 } },
     { y: DATA.series[c], line: { color: css("--text-primary"), width: 2 } },
   ],
-  tip: (c, i) => {
+  tip: (_, i, c = state.curvePick) => {
     const long = DATA.series[c][i], short = SHORT[c][i];
     if (long == null) return "";
     if (short == null) return swatch("--text-primary", "10 ans", pct(long)) + `<div class="muted">pas de cotation à 2 ans</div>`;
@@ -330,7 +332,7 @@ const curvePanel = {
 };
 // Fond rouge pâle sur les mois où le 2 ans dépasse le 10 ans (chaque mois couvre jusqu'à mi-chemin de ses voisins)
 function inversionShapes(p) {
-  const c = state.pick, long = DATA.series[c], short = SHORT[c], ms = p.stamps, n = ms.length, out = [];
+  const c = state.curvePick, long = DATA.series[c], short = SHORT[c], ms = p.stamps, n = ms.length, out = [];
   const inv = i => long[i] != null && short[i] != null && short[i] > long[i];
   const edge = (i, d) => new Date((ms[Math.min(n - 1, Math.max(0, i))] + ms[Math.min(n - 1, Math.max(0, i + d))]) / 2).toISOString().slice(0, 10);
   for (let i = 0; i < n; i++) {
@@ -365,8 +367,8 @@ const INFO = {
     "pleine crise de la dette, ils craignent un défaut proche et exigent bien plus pour prêter à court terme.",
     [],
     "en 2006-2008, la BCE monte son taux jusqu'à 4,25 % et la courbe s'aplatit, jusqu'à s'inverser brièvement en Allemagne " +
-    "et en France ; en 2011-2012, en Grèce, au Portugal et en Irlande, le 2 ans s'envole au-dessus du 10 ans (Grèce : plus " +
-    "de 100 % fin 2011, avant la restructuration de sa dette) ; de 2022 à 2024, la BCE relève son taux de −0,5 % à 4 % : le " +
+    "et en France ; fin 2011, au Portugal, le 2 ans s'envole au-dessus du 10 ans (jusqu'à 7,6 % d'écart en octobre 2011), " +
+    "la crainte d'un défaut proche dominant ; de 2022 à 2024, la BCE relève son taux de −0,5 % à 4 % : le " +
     "2 ans dépasse le 10 ans pendant près de deux ans en Allemagne (jusqu'à 0,76 % d'écart en juin 2023) et en 2023-2024 en " +
     "France, les marchés pariant sur des baisses de taux à venir ; l'Italie et l'Espagne, dont le 10 ans contient une prime " +
     "de risque plus forte, n'ont presque jamais de courbe inversée."),
@@ -484,6 +486,8 @@ state.pick = "FR";   // pays des panneaux « single »
 try { const p = localStorage.getItem("pick"); if (ALL_CODES.includes(p)) state.pick = p; } catch {}
 state.holder = "EA";   // émetteur du panneau de la dette détenue par l'Eurosystème (EA : zone euro)
 try { const h = localStorage.getItem("holder"); if (h === "EA" || ALL_CODES.includes(h)) state.holder = h; } catch {}
+state.curvePick = CURVE_CODES.includes(state.pick) ? state.pick : "FR";   // pays du panneau des taux à 2 et 10 ans
+try { const v = localStorage.getItem("curvePick"); if (CURVE_CODES.includes(v)) state.curvePick = v; } catch {}
 state.auctionView = "amounts";   // panneau des adjudications : montants ou taux de couverture
 try { const v = localStorage.getItem("auctionView"); if (AUCTION_VIEWS.some(([k]) => k === v)) state.auctionView = v; } catch {}
 state.unit = "pct";  // unité du panneau du PIB par la demande

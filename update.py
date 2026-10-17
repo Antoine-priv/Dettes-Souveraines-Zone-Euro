@@ -24,7 +24,7 @@ Finances publiques (Eurostat, administrations publiques S13) :
     avoirs extérieurs nets, autres) ;
   - taux d'emprunt d'État à 2 ans, pour comparer au 10 ans (inversion de la courbe des taux) : Bundesbank pour
     l'Allemagne (courbe des taux, mensuel depuis 1972), CNBC pour les autres pays (cours hebdomadaires depuis 2011,
-    trimestriels avant pour la France et l'Italie ; Irlande et Grèce publiées seulement jusqu'en 2019 et 2018) ;
+    trimestriels avant pour la France et l'Italie) ; pas pour la Grèce ni l'Irlande, dont le 2 ans n'est plus coté ;
   - adjudications d'OAT de l'État français (Agence France Trésor) : montant des offres des investisseurs et montant
     emprunté, sur 12 mois glissants. Le site de l'AFT bloque les téléchargements automatiques : son historique
     (« Principaux chiffres OAT », fichier .xlsx mensuel) est enregistré à la main dans data/aft_adjudications_oat.xlsx ;
@@ -79,6 +79,7 @@ ECB_URL = (
 CNBC_URL = "https://ts-api.cnbc.com/harmony/app/charts/1Y.json?symbol={code}10Y-{code}"
 # Taux à 2 ans : historique CNBC (« 10Y » : cours hebdomadaires depuis 2011 ; « ALL » : trimestriels depuis 1994)
 CNBC_2Y_URL = "https://ts-api.cnbc.com/harmony/app/charts/{range}.json?symbol={code}2Y-{code}"
+CURVE_COUNTRIES = ("IT", "ES", "PT", "FR", "DE")   # pays dont le taux à 2 ans est coté sur toute la période récente
 BBK_2Y_URL = ("https://api.statistiken.bundesbank.de/rest/data/BBSIS/"
               "M.I.ZST.ZI.EUR.S1311.B.A604.R02XX.R.A.A._Z._Z.A?format=csv&lang=en")   # Allemagne, méthode de Svensson
 TV_URL = "https://scanner.tradingview.com/global/scan"
@@ -355,7 +356,7 @@ def download():
         data["ecb"][code] = fetch_ecb(code)
     print("  Bundesbank et CNBC : taux à 2 ans…", flush=True)
     data["short"] = {}
-    for code in COUNTRIES:
+    for code in CURVE_COUNTRIES:
         try:
             data["short"][code] = fetch_2y(code)
         except Exception as exc:
@@ -797,7 +798,8 @@ def main():
         "money": money(data),
         "holdings": qe_holdings(data),
         "auctions": auctions(),
-        "short": {"months": months, "series": table({c: data.get("short", {}).get(c, {}) for c in COUNTRIES}, months, 3)},
+        "short": {"months": months, "series": {c: [None if (v := data.get("short", {}).get(c, {}).get(m)) is None else round(v, 3)
+                                                   for m in months] for c in CURVE_COUNTRIES}},
         "names": COUNTRIES,
         "fetched": data["fetched"],
     }
