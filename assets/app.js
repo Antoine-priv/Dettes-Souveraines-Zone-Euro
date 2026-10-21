@@ -164,7 +164,7 @@ const demandPanel = {
 
 // Un panneau par graphique. L'ordre d'affichage et les panneaux repliés sont dans state ;
 // n = suffixe des axes Plotly (x, x2, x3…), attribué à chaque rendu aux seuls panneaux dépliés.
-// Déficit public = déficit primaire + intérêts (% du PIB, 4 trimestres glissants depuis 2000, annuels du FMI avant) : aire du déficit primaire
+// Déficit public = déficit primaire + intérêts (% du PIB, 4 trimestres glissants depuis 2000, annuels avant : AMECO pour la France, FMI) : aire du déficit primaire
 // depuis zéro (hachurée vers le bas en cas d'excédent primaire), intérêts empilés au-dessus jusqu'au déficit total (ligne).
 // Seules les périodes connues sont tracées (avant 2000, et IE et DE avant 2002 : un point annuel par an, reliés).
 const DEFICIT = Object.fromEntries(ALL_CODES.map(c => [c, DATA.deficit.periods.map((q, i) => {
@@ -386,7 +386,8 @@ const INFO = {
     "si r > g, il faut un excédent primaire pour que la dette cesse de monter en % du PIB ; l'Italie dégage un excédent " +
     "primaire presque chaque année de 1992 à 2019 : son déficit vient des intérêts ; récessions de 2009 et 2020 : les recettes chutent et " +
     "les plans de soutien gonflent le déficit primaire ; Irlande en 2010 : plus de 30 % du PIB avec le sauvetage des banques ; " +
-    "Grèce : excédents primaires exigés par les plans d'aide après 2015 ; la règle européenne fixe le déficit à 3 % du PIB au plus."),
+    "Grèce : excédents primaires exigés par les plans d'aide après 2015 ; France : dernier excédent en 1974, déficit chaque " +
+    "année depuis 1975 ; la règle européenne fixe le déficit à 3 % du PIB au plus."),
   holdings: explain("Part de la dette publique détenue par l'Eurosystème (la BCE et les banques centrales nationales), selon " +
     "le programme de rachat qui l'a achetée : le SMP, rachats ciblés de dette de la Grèce, de l'Irlande, du Portugal, de " +
     "l'Espagne et de l'Italie en pleine crise (2010-2012, environ 220 Md€ au plus haut), compensés par un retrait équivalent de " +

@@ -90,6 +90,11 @@ UA = {"User-Agent": "Mozilla/5.0"}
 # du PIB du FMI (« Public Finances in Modern History »), PIB nominal et réel de la Global Macro Database
 HIST_START, HIST_END = 1949, 1999
 IMF_URL = "https://www.imf.org/external/datamapper/api/v1/{indicator}"
+# Solde public annuel de la Commission européenne (AMECO, UBLG, % du PIB, SEC 2010), à la place du solde du FMI
+# (intérêts − solde primaire), faux pour la France avant 1978 (excédents en 1976-1977, déficit de 0,3 % en 1975)
+AMECO_URL = ("https://ec.europa.eu/economy_finance/ameco/wq/series?fullVariable=1.0.319.0.UBLG&countries={}"
+             "&lastYear=0&defaultCountries=0")
+AMECO_COUNTRIES = ("FR",)   # AMECO ne remonte avant 1991 que pour la France
 GMD_URL = "https://www.globalmacrodata.com/GMD.csv"
 # Achats nets de dette publique de l'Eurosystème (BCE + banques centrales nationales) par pays émetteur, mensuels
 # Masse monétaire de la zone euro (bilans des banques et de l'Eurosystème, données CVS) : encours de M3 et flux mensuels
@@ -276,14 +281,15 @@ def fetch_france(dataset, items, by_cofog=False):
 
 
 def fetch_history():
-    """{'ie'|'d'|'pb'|'ngdp'|'rgdp'|'C'|'I'|'G'|'X'|'M': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END
-    (composantes du PIB en millions d'euros)."""
+    """{'ie'|'d'|'pb'|'nl'|'ngdp'|'rgdp'|'C'|'I'|'G'|'X'|'M': {'XX': {'AAAA': valeur}}}, années HIST_START → HIST_END
+    (nl : solde public d'AMECO ; composantes du PIB en millions d'euros)."""
     years = {str(y) for y in range(HIST_START, HIST_END + 1)}
     out = {}
     for key in ("ie", "d", "pb"):   # % du PIB (pb : solde primaire, hors intérêts)
         # le FMI refuse les navigateurs (403) mais accepte un client en ligne de commande
         values = json.loads(http(IMF_URL.format(indicator=key), headers={"User-Agent": "curl/8"}))["values"][key]
         out[key] = {c: {y: v for y, v in values.get(iso, {}).items() if y in years and v is not None} for c, iso in ISO3.items()}
+    out["nl"] = fetch_ameco(years)
     columns = {"ngdp": "nGDP", "rgdp": "rGDP", **GMD_DEMAND}
     out.update({key: {c: {} for c in COUNTRIES} for key in columns})
     code = {iso: c for c, iso in ISO3.items()}
@@ -293,6 +299,16 @@ def fetch_history():
                 if row[col]:
                     out[key][c][row["year"]] = float(row[col])
     return out
+
+
+def fetch_ameco(years):
+    """{'XX': {'AAAA': solde public en % du PIB}} pour AMECO_COUNTRIES : tableau HTML (en-tête = années)."""
+    page = http(AMECO_URL.format(",".join(ISO3[c] for c in AMECO_COUNTRIES)))
+    rows = [[re.sub(r"<[^>]*>", "", cell).strip() for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row)]
+            for row in re.findall(r"<tr>(.*?)</tr>", page)]
+    code = {QE_NAMES[c]: c for c in AMECO_COUNTRIES}
+    return {code[r[0]]: {y: float(v) for y, v in zip(rows[0][3:], r[3:]) if y in years and v}
+            for r in rows[1:] if r and r[0] in code}
 
 
 def fetch_qe(name):
@@ -391,7 +407,7 @@ def download():
                                                     unit="CP_MEUR", s_adj="NSA") for s in PRIVATE}
     data["liabilities_q"] = {f"{s}_{i}": fetch_eurostat("nasq_10_f_bs", "1999-Q1", na_item=i, finpos="LIAB", sector=s,
                                                         unit="MIO_EUR") for s in (*PRIVATE, "S13") for i in ("F3", "F4")}
-    print("  FMI et Global Macro Database : historique depuis 1950…", flush=True)
+    print("  FMI, AMECO et Global Macro Database : historique depuis 1950…", flush=True)
     try:
         data["hist"] = fetch_history()
     except Exception as exc:   # données figées : on garde celles du cache
@@ -465,7 +481,8 @@ def history_debt(data):
 
 def rolling_deficit(data):
     """{'XX': {'AAAA-Qn': déficit en % du PIB sur les 4 trimestres finissant à Qn}} (déficit > 0) ; de 1950 à 1999,
-    déficit annuel du FMI (intérêts − solde primaire) placé au 4e trimestre."""
+    déficit annuel placé au 4e trimestre : AMECO quand il existe (France depuis 1960), sinon FMI (intérêts − solde
+    primaire)."""
     out = {}
     for c in COUNTRIES:
         b9, gdp = data.get("balance_q", {}).get(c, {}), data.get("gdp_q", {}).get(c, {})
@@ -483,6 +500,9 @@ def rolling_deficit(data):
         for y, pb in hist.get("pb", {}).get(c, {}).items():
             if "1950" <= y <= str(HIST_END) and (ie := hist.get("ie", {}).get(c, {}).get(y)) is not None:
                 out[c][f"{y}-Q4"] = ie - pb
+        for y, v in hist.get("nl", {}).get(c, {}).items():
+            if "1950" <= y <= str(HIST_END):
+                out[c][f"{y}-Q4"] = -v
     return out
 
 
